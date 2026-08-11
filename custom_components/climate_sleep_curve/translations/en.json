@@ -1,0 +1,12 @@
+{
+  "title": "Climate Sleep Curve",
+  "config": {"step": {"user": {"title": "Set up Climate Sleep Curve", "description": "Create the integration container. Curves and controllers are configured from the card. The integration never turns a climate device on or off."}}},
+  "options": {"step": {"init": {"title": "Global options", "data": {"history_retention_days": "History retention (days)", "default_retry_count": "Default retry count", "default_retry_delay_seconds": "Default retry delay (seconds)"}}}},
+  "services": {
+    "start": {"name": "Start sleep curve", "description": "Start a session without turning on the climate device.", "fields": {"controller_id": {"name": "Controller ID", "description": "Controller to start."}, "profile_id": {"name": "Profile ID", "description": "Optional profile override for this session."}, "replace": {"name": "Replace", "description": "Replace an existing active session."}}},
+    "stop": {"name": "Stop sleep curve", "description": "Stop the active session without turning off the climate device.", "fields": {"controller_id": {"name": "Controller ID", "description": "Controller to stop."}}},
+    "apply_current_point": {"name": "Apply current point", "description": "Apply the current target only when the climate device is already running.", "fields": {"controller_id": {"name": "Controller ID", "description": "Controller whose point should be applied."}}},
+    "reload": {"name": "Reload", "description": "Reload storage and schedules without controlling climate devices."}
+  },
+  "entity": {"switch": {"sleep_curve": {"name": "Sleep curve"}}, "sensor": {"status": {"name": "Sleep curve status"}}, "select": {"sleep_profile": {"name": "Sleep profile"}}, "button": {"restart": {"name": "Restart sleep curve"}}}
+}

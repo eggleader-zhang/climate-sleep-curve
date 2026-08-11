@@ -1,0 +1,12 @@
+{
+  "title": "空调睡眠曲线",
+  "config": {"step": {"user": {"title": "设置空调睡眠曲线", "description": "创建集成容器。请在空调睡眠曲线卡片中配置曲线和控制器。本集成永远不会打开或关闭空调。"}}},
+  "options": {"step": {"init": {"title": "全局选项", "data": {"history_retention_days": "历史保留天数", "default_retry_count": "默认重试次数", "default_retry_delay_seconds": "默认重试延迟（秒）"}}}},
+  "services": {
+    "start": {"name": "启动睡眠曲线", "description": "创建会话，但不打开空调。", "fields": {"controller_id": {"name": "控制器 ID", "description": "要启动的控制器。"}, "profile_id": {"name": "曲线 ID", "description": "本次会话可选使用的曲线。"}, "replace": {"name": "替换", "description": "替换已经运行的会话。"}}},
+    "stop": {"name": "停止睡眠曲线", "description": "停止活动会话，但不关闭空调。", "fields": {"controller_id": {"name": "控制器 ID", "description": "要停止的控制器。"}}},
+    "apply_current_point": {"name": "应用当前节点", "description": "仅在空调已经运行时应用当前目标温度。", "fields": {"controller_id": {"name": "控制器 ID", "description": "要应用当前节点的控制器。"}}},
+    "reload": {"name": "重新加载", "description": "重新加载存储和调度，不控制任何空调设备。"}
+  },
+  "entity": {"switch": {"sleep_curve": {"name": "睡眠曲线"}}, "sensor": {"status": {"name": "睡眠曲线状态"}}, "select": {"sleep_profile": {"name": "睡眠曲线"}}, "button": {"restart": {"name": "重新开始睡眠曲线"}}}
+}

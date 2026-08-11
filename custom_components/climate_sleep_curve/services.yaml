@@ -1,0 +1,30 @@
+start:
+  name: Start sleep curve
+  description: Start a session without turning on the climate device.
+  fields:
+    controller_id:
+      required: true
+      selector: {text: {}}
+    profile_id:
+      selector: {text: {}}
+    replace:
+      default: false
+      selector: {boolean: {}}
+stop:
+  name: Stop sleep curve
+  description: Stop a session without turning off or otherwise changing the climate device.
+  fields:
+    controller_id:
+      required: true
+      selector: {text: {}}
+apply_current_point:
+  name: Apply current point
+  description: Apply the current point only if the climate device is already running.
+  fields:
+    controller_id:
+      required: true
+      selector: {text: {}}
+reload:
+  name: Reload
+  description: Reload stored curves and rebuild schedules without controlling any climate device.
+
