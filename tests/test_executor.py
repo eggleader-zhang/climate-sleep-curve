@@ -159,6 +159,57 @@ async def test_temperature_and_fan_results_are_reported_independently():
 
 
 @pytest.mark.asyncio
+async def test_one_failed_action_is_reported_as_partial_failure():
+    hass = hass_with_state(State("climate.bedroom", "cool", {
+        "temperature": 25,
+        "min_temp": 16,
+        "max_temp": 30,
+        "target_temp_step": 0.5,
+        "fan_mode": "low",
+        "fan_modes": ["auto", "low"],
+    }))
+
+    async def fail_fan_mode(_domain, service, _data, **_kwargs):
+        if service == "set_fan_mode":
+            raise RuntimeError("fan mode failed")
+
+    hass.services.async_call.side_effect = fail_fan_mode
+    result = await async_execute_climate_targets(
+        hass, ["climate.bedroom"], 27, "auto", 0, 10, lambda: True
+    )
+
+    assert result["result"] == "partial_failure"
+    entity_result = result["entity_results"][0]
+    assert entity_result["result"] == "partial_failure"
+    assert entity_result["temperature_result"] == "applied"
+    assert entity_result["fan_result"] == "failed"
+    assert entity_result["applied_temperature"] == 27.0
+    assert entity_result["error"] == "fan mode failed"
+
+
+@pytest.mark.asyncio
+async def test_unchanged_temperature_does_not_hide_unsupported_fan_mode():
+    hass = hass_with_state(State("climate.bedroom", "cool", {
+        "temperature": 27,
+        "min_temp": 16,
+        "max_temp": 30,
+        "target_temp_step": 0.5,
+        "fan_mode": "low",
+        "fan_modes": ["low", "high"],
+    }))
+
+    result = await async_execute_climate_targets(
+        hass, ["climate.bedroom"], 27, "auto", 0, 10, lambda: True
+    )
+
+    assert result["result"] == "skipped_mixed"
+    entity_result = result["entity_results"][0]
+    assert entity_result["temperature_result"] == "no_change"
+    assert entity_result["fan_result"] == "skipped_unsupported"
+    hass.services.async_call.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_cancellation_prevents_retry():
     hass = hass_with_state(State("climate.bedroom", "cool", {
         "temperature": 25, "min_temp": 16, "max_temp": 30, "target_temp_step": .5,

@@ -276,13 +276,12 @@ async def async_execute_climate_targets(
             service_limiter=semaphore,
         )
         action_outcomes = {temperature_result["result"], fan_result["result"]}
-        if action_outcomes & {"failed", "partial_failure"}:
-            combined = "failed"
+        failed_outcomes = action_outcomes & {"failed", "partial_failure"}
+        if failed_outcomes:
+            combined = "failed" if action_outcomes <= failed_outcomes else "partial_failure"
         elif "applied" in action_outcomes:
             combined = "applied"
         elif action_outcomes == {"no_change"}:
-            combined = "no_change"
-        elif "no_change" in action_outcomes:
             combined = "no_change"
         elif len(action_outcomes) == 1:
             combined = next(iter(action_outcomes))
