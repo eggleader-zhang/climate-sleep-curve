@@ -61,14 +61,14 @@ def test_controller_accepts_legacy_single_entity():
     assert result["climate_entity_ids"] == ["climate.bedroom"]
 
 
-def test_legacy_entity_edit_takes_precedence_when_alias_differs():
+def test_plural_entity_field_takes_precedence_over_compatibility_alias():
     result = validate_controller({
         "name": "Bedroom",
         "climate_entity_id": "climate.new",
         "climate_entity_ids": ["climate.old", "climate.study"],
         "profile_id": "p",
     }, {"p"})
-    assert result["climate_entity_ids"] == ["climate.new"]
+    assert result["climate_entity_ids"] == ["climate.old", "climate.study"]
 
 
 @pytest.mark.parametrize("entity_ids", [[], ["sensor.wrong"], ["climate.good", 1]])

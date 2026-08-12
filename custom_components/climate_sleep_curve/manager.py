@@ -185,6 +185,19 @@ class ClimateSleepCurveManager:
 
     async def async_save_controller(self, raw: dict[str, Any], expected_revision: int | None) -> dict[str, Any]:
         controller_data = dict(raw)
+        controller_id = raw.get("id")
+        if controller_id is not None and not isinstance(controller_id, str):
+            raise ValidationError("invalid_controller", "Controller id must be a string")
+        current = self.controllers.get(controller_id) if controller_id else None
+        if (
+            current
+            and isinstance(controller_data.get("climate_entity_id"), str)
+            and controller_data.get("climate_entity_ids") == current.get("climate_entity_ids")
+            and controller_data.get("climate_entity_id") != current.get("climate_entity_id")
+        ):
+            # Cards before 0.2.0 edit only the singular compatibility field after
+            # spreading the controller returned by get_state.
+            controller_data["climate_entity_ids"] = [controller_data["climate_entity_id"]]
         controller_data.setdefault("retry_count", self.data["settings"]["default_retry_count"])
         controller_data.setdefault("retry_delay_seconds", self.data["settings"]["default_retry_delay_seconds"])
         normalized = validate_controller(controller_data, set(self.profiles))
@@ -198,9 +211,6 @@ class ClimateSleepCurveManager:
                 supported = 0
             if not (supported & ClimateEntityFeature.TARGET_TEMPERATURE) and "temperature" not in state.attributes:
                 raise ValidationError("unsupported_entity", f"The climate entity does not support a target temperature: {entity_id}")
-        controller_id = raw.get("id")
-        if controller_id is not None and not isinstance(controller_id, str):
-            raise ValidationError("invalid_controller", "Controller id must be a string")
         now = utcnow_iso()
         created = not controller_id
         config_lock = self._locks.setdefault(controller_id or "__new_controller__", asyncio.Lock())

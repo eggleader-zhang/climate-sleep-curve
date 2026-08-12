@@ -123,9 +123,6 @@ def validate_controller(data: dict[str, Any], profile_ids: set[str]) -> dict[str
     raw_entity_ids = data.get("climate_entity_ids")
     if raw_entity_ids is None:
         raw_entity_ids = [data.get("climate_entity_id", "")]
-    elif data.get("climate_entity_id") and raw_entity_ids and data["climate_entity_id"] != raw_entity_ids[0]:
-        # An older card edits only the singular compatibility field.
-        raw_entity_ids = [data["climate_entity_id"]]
     if not isinstance(raw_entity_ids, list) or not 1 <= len(raw_entity_ids) <= 32:
         raise ValidationError("invalid_entity", "One to 32 climate entities are required")
     entity_ids: list[str] = []

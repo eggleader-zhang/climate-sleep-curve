@@ -130,7 +130,9 @@ async def async_execute_temperatures(
     errors = [result["error"] for result in raw_results if result.get("error")]
     return {
         "result": outcome,
-        "attempts": sum(int(result.get("attempts", 0)) for result in raw_results),
+        # Preserve the original node-level meaning: attempts is the greatest
+        # number of tries made for any one target, not a sum across targets.
+        "attempts": max((int(result.get("attempts", 0)) for result in raw_results), default=0),
         "error": "; ".join(errors)[:256] or None,
         "entity_results": entity_results,
     }

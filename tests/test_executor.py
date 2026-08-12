@@ -108,5 +108,6 @@ async def test_multiple_entities_are_checked_and_executed_independently():
         "climate", "set_temperature", {"entity_id": "climate.study", "temperature": 27.0}, blocking=True
     )
     assert result["result"] == "applied"
+    assert result["attempts"] == 1
     assert [item["result"] for item in result["entity_results"]] == ["skipped_off", "applied"]
     assert all("hvac_mode" not in call.args[2] for call in hass.services.async_call.await_args_list)

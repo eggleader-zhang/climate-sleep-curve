@@ -96,3 +96,48 @@ async def test_session_snapshots_controller_entity_list():
     manager.controllers["controller"]["climate_entity_ids"] = ["climate.bedroom"]
 
     assert session["climate_entity_ids"] == ["climate.bedroom", "climate.study"]
+
+
+@pytest.mark.asyncio
+async def test_legacy_card_can_update_singular_entity_alias():
+    manager = build_manager()
+    manager.hass.states.get.side_effect = lambda entity_id: Mock(
+        state="cool", attributes={"supported_features": 1, "temperature": 25}
+    ) if entity_id == "climate.study" else None
+
+    result = await manager.async_save_controller({
+        **manager.controllers["controller"],
+        "climate_entity_id": "climate.study",
+    }, manager.controllers["controller"]["revision"])
+
+    assert result["climate_entity_ids"] == ["climate.study"]
+
+
+@pytest.mark.asyncio
+async def test_new_card_plural_entity_update_is_not_overridden_by_stale_alias():
+    manager = build_manager()
+    manager.hass.states.get.side_effect = lambda entity_id: Mock(
+        state="cool", attributes={"supported_features": 1, "temperature": 25}
+    ) if entity_id in {"climate.study", "climate.office"} else None
+
+    result = await manager.async_save_controller({
+        **manager.controllers["controller"],
+        "climate_entity_ids": ["climate.study", "climate.office"],
+    }, manager.controllers["controller"]["revision"])
+
+    assert result["climate_entity_ids"] == ["climate.study", "climate.office"]
+    assert result["climate_entity_id"] == "climate.study"
+
+
+@pytest.mark.asyncio
+async def test_plural_only_controller_update_does_not_require_compatibility_alias():
+    manager = build_manager()
+    payload = deepcopy(manager.controllers["controller"])
+    del payload["climate_entity_id"]
+
+    result = await manager.async_save_controller(
+        payload, manager.controllers["controller"]["revision"]
+    )
+
+    assert result["climate_entity_ids"] == ["climate.bedroom"]
+    assert result["climate_entity_id"] == "climate.bedroom"
