@@ -94,3 +94,43 @@ async def async_execute_temperature(
                 return {"result": "failed", "attempts": attempts, "error": str(err)[:256]}
             await asyncio.sleep(retry_delay)
     raise AssertionError("unreachable")
+
+
+async def async_execute_temperatures(
+    hass: HomeAssistant,
+    entity_ids: list[str],
+    temperature_c: float,
+    retry_count: int,
+    retry_delay: int,
+    is_active: Callable[[], bool],
+) -> dict[str, Any]:
+    """Safely apply one point to several independent climate entities."""
+    raw_results = await asyncio.gather(*(
+        async_execute_temperature(
+            hass, entity_id, temperature_c, retry_count, retry_delay, is_active
+        )
+        for entity_id in entity_ids
+    ))
+    entity_results = [
+        {"entity_id": entity_id, **result}
+        for entity_id, result in zip(entity_ids, raw_results, strict=True)
+    ]
+    outcomes = [result["result"] for result in raw_results]
+    unique_outcomes = set(outcomes)
+    if len(unique_outcomes) == 1:
+        outcome = outcomes[0]
+    elif "failed" in unique_outcomes:
+        outcome = "partial_failure"
+    elif "applied" in unique_outcomes:
+        outcome = "applied"
+    elif "no_change" in unique_outcomes:
+        outcome = "no_change"
+    else:
+        outcome = "skipped_mixed"
+    errors = [result["error"] for result in raw_results if result.get("error")]
+    return {
+        "result": outcome,
+        "attempts": sum(int(result.get("attempts", 0)) for result in raw_results),
+        "error": "; ".join(errors)[:256] or None,
+        "entity_results": entity_results,
+    }

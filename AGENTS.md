@@ -53,7 +53,7 @@
 
 ### 控制器
 
-- `climate_entity_id` 必须匹配 `climate.[a-z0-9_]+`，保存时实体必须存在并支持目标温度。
+- `climate_entity_ids` 必须包含 1～32 个匹配 `climate.[a-z0-9_]+` 的不重复实体；保存时每个实体都必须存在并支持目标温度。`climate_entity_id` 仅作为首个实体的旧协议兼容别名。
 - `profile_id` 必须引用已有曲线。
 - 自动启动时间使用 `HH:MM:SS`。
 - 星期为 0～6，其中 0 是周一。

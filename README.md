@@ -10,7 +10,7 @@ Climate Sleep Curve 是一个 Home Assistant 自定义集成，用于让已有�
 ## 主要功能
 
 - 保存多条 4～12 小时的睡眠温度曲线。
-- 为不同房间或空调创建独立控制器。
+- 为不同房间创建独立控制器，每个控制器可同时绑定多个空调实体。
 - 手动启动、停止、重新开始和按星期定时启动。
 - 会话启动时创建曲线快照，运行过程中编辑原曲线不会改变当前会话。
 - Home Assistant 重启后恢复尚未到达的节点，不补发已经错过的节点。
@@ -24,7 +24,7 @@ Climate Sleep Curve 是一个 Home Assistant 自定义集成，用于让已有�
 ## 要求
 
 - Home Assistant `2025.1.0` 或更高版本。
-- 至少一个支持目标温度的 `climate` 实体。
+- 至少一个支持目标温度的 `climate` 实体；同一控制器可选择最多 32 个实体。
 - 如需图形化创建和编辑曲线，需要安装 Climate Sleep Curve Card。
 
 ## 安装
@@ -87,9 +87,9 @@ custom_components/climate_sleep_curve
 
 ### 控制器 Controller
 
-控制器把一条曲线绑定到一个真实的 `climate` 实体，并保存：
+控制器把一条曲线绑定到一个或多个真实的 `climate` 实体，并保存：
 
-- 控制器名称和启用状态。
+- 控制器名称、启用状态和目标空调列表。
 - 下一次会话默认使用的曲线。
 - 自动启动时间与星期。
 - 失败重试次数和重试间隔。
@@ -111,7 +111,7 @@ custom_components/climate_sleep_curve
 1. 确认目标空调已作为 `climate.xxx` 接入 Home Assistant。
 2. 安装后端集成和前端卡片。
 3. 在卡片中点击“开始设置”。
-4. 创建默认 8 小时曲线，并选择要绑定的空调。
+4. 创建默认 8 小时曲线，并多选要绑定的空调。
 5. 拖动曲线节点，保存所需温度。
 6. 在控制器设置中按需启用每日自动启动。
 7. 睡前先用原空调控制方式打开空调，再点击“启动曲线”。
@@ -120,7 +120,7 @@ custom_components/climate_sleep_curve
 
 ## Home Assistant 实体
 
-每个控制器会创建设备及以下实体：
+每个控制器会创建设备及以下实体。一个节点会独立应用到该控制器选择的所有空调；某台设备关闭、不可用或失败时，不影响其他设备：
 
 | 类型 | 用途 |
 | --- | --- |
@@ -214,10 +214,12 @@ mode: single
 | `skipped_unavailable` | 空调不可用 |
 | `skipped_unknown` | 实体不存在或状态未知 |
 | `skipped_off_after_failure` | 首次调用失败后设备变为关闭状态 |
+| `skipped_mixed` | 多台设备均被跳过，但跳过原因不同；详情见 `entity_results` |
 | `missed_during_restart` | Home Assistant 停机期间错过，恢复后没有补发 |
 | `failed` | 服务调用失败，且允许的重试已经用尽 |
+| `partial_failure` | 多台设备中至少一台失败，其他设备执行结果见 `entity_results` |
 
-对华氏设备，曲线中的摄氏温度会在执行时转换为华氏温度，再按照设备的 `min_temp`、`max_temp` 和 `target_temp_step` 进行裁剪与吸附。
+对华氏设备，曲线中的摄氏温度会在执行时转换为华氏温度，再按照设备的 `min_temp`、`max_temp` 和 `target_temp_step` 进行裁剪与吸附。多空调控制器的每个节点还会保存逐设备 `entity_results`，方便区分某台设备的跳过、成功或失败状态。
 
 ## 重启、历史和设置
 
@@ -243,7 +245,7 @@ mode: single
 - `climate_sleep_curve_session_stopped`
 - `climate_sleep_curve_session_completed`
 
-事件数据包含控制器 ID、会话 ID 和目标空调实体；节点事件还包含计划时间、处理时间、目标温度、结果和尝试次数。可以在“开发者工具 → 事件”中监听，用于通知或调试。
+事件数据包含控制器 ID、会话 ID、`climate_entity_ids` 目标空调列表，以及用于旧客户端兼容的首个 `climate_entity_id`；节点事件还包含计划时间、处理时间、目标温度、聚合结果、逐设备 `entity_results` 和尝试次数。可以在“开发者工具 → 事件”中监听，用于通知或调试。
 
 ## 故障排查
 
@@ -255,8 +257,8 @@ mode: single
 
 ### 控制器无法保存
 
-- 确认实体 ID 以 `climate.` 开头且当前存在。
-- 确认设备支持设置目标温度。
+- 确认所有实体 ID 都以 `climate.` 开头且当前存在。
+- 确认每台设备都支持设置目标温度。
 - 配置曲线和控制器的 WebSocket 写操作需要 Home Assistant 管理员权限。
 
 ### 曲线运行但温度没有变化
@@ -312,7 +314,7 @@ pytest
 
 ## 版本边界
 
-当前版本为 `0.1.0`。这一版本执行离散节点，不做连续插值，不创建虚拟 `climate` 实体，也不控制电源、HVAC 模式、风速、摆风或湿度。
+当前版本为 `0.2.0`。这一版本支持一个控制器绑定多个空调并执行离散节点，不做连续插值，不创建虚拟 `climate` 实体，也不控制电源、HVAC 模式、风速、摆风或湿度。
 
 ## 许可证
 

@@ -120,12 +120,23 @@ def validate_controller(data: dict[str, Any], profile_ids: set[str]) -> dict[str
     name = raw_name.strip()
     if not 1 <= len(name) <= 64:
         raise ValidationError("invalid_controller", "Controller name must contain 1 to 64 characters")
-    raw_entity_id = data.get("climate_entity_id", "")
-    if not isinstance(raw_entity_id, str):
-        raise ValidationError("invalid_entity", "A climate entity is required")
-    entity_id = raw_entity_id.strip()
-    if re.fullmatch(r"climate\.[a-z0-9_]+", entity_id) is None:
-        raise ValidationError("invalid_entity", "A climate entity is required")
+    raw_entity_ids = data.get("climate_entity_ids")
+    if raw_entity_ids is None:
+        raw_entity_ids = [data.get("climate_entity_id", "")]
+    elif data.get("climate_entity_id") and raw_entity_ids and data["climate_entity_id"] != raw_entity_ids[0]:
+        # An older card edits only the singular compatibility field.
+        raw_entity_ids = [data["climate_entity_id"]]
+    if not isinstance(raw_entity_ids, list) or not 1 <= len(raw_entity_ids) <= 32:
+        raise ValidationError("invalid_entity", "One to 32 climate entities are required")
+    entity_ids: list[str] = []
+    for raw_entity_id in raw_entity_ids:
+        if not isinstance(raw_entity_id, str):
+            raise ValidationError("invalid_entity", "Every climate entity must be a string")
+        entity_id = raw_entity_id.strip()
+        if re.fullmatch(r"climate\.[a-z0-9_]+", entity_id) is None:
+            raise ValidationError("invalid_entity", "Every entity must use a valid climate entity id")
+        if entity_id not in entity_ids:
+            entity_ids.append(entity_id)
     profile_id = data.get("profile_id", "")
     if not isinstance(profile_id, str):
         raise ValidationError("not_found", "Profile does not exist")
@@ -158,7 +169,9 @@ def validate_controller(data: dict[str, Any], profile_ids: set[str]) -> dict[str
         raise ValidationError("invalid_controller", "Enabled options must be boolean values")
     return {
         "name": name,
-        "climate_entity_id": entity_id,
+        "climate_entity_ids": entity_ids,
+        # Kept as a compatibility alias for older cards, automations, and diagnostics.
+        "climate_entity_id": entity_ids[0],
         "profile_id": profile_id,
         "enabled": enabled,
         "automatic_start": {
@@ -176,10 +189,12 @@ def make_session(controller: dict[str, Any], profile: dict[str, Any], source: st
     """Create a session containing an immutable profile snapshot."""
     started_at = started_at.astimezone(timezone.utc)
     ends_at = started_at.timestamp() + profile["duration_minutes"] * 60
+    entity_ids = list(controller.get("climate_entity_ids") or [controller["climate_entity_id"]])
     return {
         "id": new_id(),
         "controller_id": controller["id"],
-        "climate_entity_id": controller["climate_entity_id"],
+        "climate_entity_ids": entity_ids,
+        "climate_entity_id": entity_ids[0],
         "profile_snapshot": deepcopy(profile),
         "source": source,
         "status": "running",

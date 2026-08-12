@@ -37,5 +37,6 @@ class SleepCurveStatusSensor(ControllerEntity, SensorEntity):
             "ends_at": session["ends_at"],
             "last_result": session.get("last_result"),
             "last_error": session.get("last_error"),
+            "last_entity_results": session.get("last_entity_results"),
         }
 

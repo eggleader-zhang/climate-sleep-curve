@@ -29,6 +29,7 @@ def build_manager():
     }
     controller = {
         "id": "controller", "name": "Bedroom", "climate_entity_id": "climate.bedroom",
+        "climate_entity_ids": ["climate.bedroom"],
         "profile_id": "profile", "enabled": True,
         "automatic_start": {"enabled": False, "time": "23:00:00", "weekdays": list(range(7))},
         "catch_up_window_minutes": 0, "retry_count": 1, "retry_delay_seconds": 10,
@@ -66,3 +67,32 @@ async def test_failed_profile_save_rolls_back_memory():
             "points": [{"offset_minutes": 0, "temperature": 26}, {"offset_minutes": 60, "temperature": 27}],
         }, None)
     assert manager.data == before
+
+
+@pytest.mark.asyncio
+async def test_controller_saves_multiple_supported_entities():
+    manager = build_manager()
+    manager.hass.states.get.side_effect = lambda entity_id: Mock(
+        state="cool", attributes={"supported_features": 1, "temperature": 25}
+    ) if entity_id in {"climate.bedroom", "climate.study"} else None
+
+    result = await manager.async_save_controller({
+        "name": "Both rooms",
+        "climate_entity_ids": ["climate.bedroom", "climate.study"],
+        "profile_id": "profile",
+        "automatic_start": {"enabled": False, "time": "23:00:00", "weekdays": list(range(7))},
+    }, None)
+
+    assert result["climate_entity_ids"] == ["climate.bedroom", "climate.study"]
+    assert result["climate_entity_id"] == "climate.bedroom"
+
+
+@pytest.mark.asyncio
+async def test_session_snapshots_controller_entity_list():
+    manager = build_manager()
+    manager.controllers["controller"]["climate_entity_ids"] = ["climate.bedroom", "climate.study"]
+
+    session = await manager.async_start_session("controller")
+    manager.controllers["controller"]["climate_entity_ids"] = ["climate.bedroom"]
+
+    assert session["climate_entity_ids"] == ["climate.bedroom", "climate.study"]

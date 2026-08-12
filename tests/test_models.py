@@ -46,10 +46,37 @@ def test_invalid_profiles(mutation):
 
 def test_controller_validation():
     result = validate_controller({
-        "name": "Bedroom", "climate_entity_id": "climate.bedroom", "profile_id": "p",
+        "name": "Bedroom", "climate_entity_ids": ["climate.bedroom", "climate.study", "climate.bedroom"], "profile_id": "p",
         "automatic_start": {"enabled": True, "time": "23:00:00", "weekdays": [6, 0, 0]},
     }, {"p"})
     assert result["automatic_start"]["weekdays"] == [0, 6]
+    assert result["climate_entity_ids"] == ["climate.bedroom", "climate.study"]
+    assert result["climate_entity_id"] == "climate.bedroom"
+
+
+def test_controller_accepts_legacy_single_entity():
+    result = validate_controller({
+        "name": "Bedroom", "climate_entity_id": "climate.bedroom", "profile_id": "p",
+    }, {"p"})
+    assert result["climate_entity_ids"] == ["climate.bedroom"]
+
+
+def test_legacy_entity_edit_takes_precedence_when_alias_differs():
+    result = validate_controller({
+        "name": "Bedroom",
+        "climate_entity_id": "climate.new",
+        "climate_entity_ids": ["climate.old", "climate.study"],
+        "profile_id": "p",
+    }, {"p"})
+    assert result["climate_entity_ids"] == ["climate.new"]
+
+
+@pytest.mark.parametrize("entity_ids", [[], ["sensor.wrong"], ["climate.good", 1]])
+def test_controller_rejects_invalid_entity_lists(entity_ids):
+    with pytest.raises(ValidationError):
+        validate_controller({
+            "name": "Bedroom", "climate_entity_ids": entity_ids, "profile_id": "p",
+        }, {"p"})
 
 
 @pytest.mark.parametrize("value", ["false", 0, 1])
@@ -63,9 +90,10 @@ def test_controller_rejects_non_boolean_enabled(value):
 
 def test_session_uses_snapshot():
     curve = {"id": "p", **validate_profile(profile())}
-    session = make_session({"id": "c", "climate_entity_id": "climate.bedroom"}, curve, "manual", datetime.now(timezone.utc))
+    session = make_session({"id": "c", "climate_entity_ids": ["climate.bedroom", "climate.study"]}, curve, "manual", datetime.now(timezone.utc))
     curve["points"][0]["temperature"] = 30
     assert session["profile_snapshot"]["points"][0]["temperature"] == 26
+    assert session["climate_entity_ids"] == ["climate.bedroom", "climate.study"]
 
 
 def test_recommendation_is_deterministic():

@@ -26,7 +26,7 @@ from .const import (
     SIGNAL_UPDATED,
     STORE_VERSION,
 )
-from .executor import async_execute_temperature
+from .executor import async_execute_temperatures
 from .models import RevisionConflict, ValidationError, make_session, new_id, parse_utc, utcnow_iso, validate_controller, validate_profile
 from .storage import CurveStorage
 
@@ -188,15 +188,16 @@ class ClimateSleepCurveManager:
         controller_data.setdefault("retry_count", self.data["settings"]["default_retry_count"])
         controller_data.setdefault("retry_delay_seconds", self.data["settings"]["default_retry_delay_seconds"])
         normalized = validate_controller(controller_data, set(self.profiles))
-        state = self.hass.states.get(normalized["climate_entity_id"])
-        if state is None:
-            raise ValidationError("invalid_entity", "The climate entity does not exist")
-        try:
-            supported = int(state.attributes.get("supported_features", 0))
-        except (TypeError, ValueError):
-            supported = 0
-        if not (supported & ClimateEntityFeature.TARGET_TEMPERATURE) and "temperature" not in state.attributes:
-            raise ValidationError("unsupported_entity", "The climate entity does not support a target temperature")
+        for entity_id in normalized["climate_entity_ids"]:
+            state = self.hass.states.get(entity_id)
+            if state is None:
+                raise ValidationError("invalid_entity", f"The climate entity does not exist: {entity_id}")
+            try:
+                supported = int(state.attributes.get("supported_features", 0))
+            except (TypeError, ValueError):
+                supported = 0
+            if not (supported & ClimateEntityFeature.TARGET_TEMPERATURE) and "temperature" not in state.attributes:
+                raise ValidationError("unsupported_entity", f"The climate entity does not support a target temperature: {entity_id}")
         controller_id = raw.get("id")
         if controller_id is not None and not isinstance(controller_id, str):
             raise ValidationError("invalid_controller", "Controller id must be a string")
@@ -267,8 +268,6 @@ class ClimateSleepCurveManager:
         current = self.controllers.get(controller_id)
         if current is None:
             raise ValidationError("not_found", "Controller does not exist")
-        if self.hass.states.get(current["climate_entity_id"]) is None:
-            raise ValidationError("invalid_entity", "The climate entity does not exist")
         if profile_id is not None and profile_id not in self.profiles:
             raise ValidationError("not_found", "Profile does not exist")
         pending = self.active_session(controller_id)
@@ -280,8 +279,6 @@ class ClimateSleepCurveManager:
                 controller = self.controllers.get(controller_id)
                 if controller is None:
                     raise ValidationError("not_found", "Controller does not exist")
-                if self.hass.states.get(controller["climate_entity_id"]) is None:
-                    raise ValidationError("invalid_entity", "The climate entity does not exist")
                 active = self.active_session(controller_id)
                 if active and not replace:
                     raise ValidationError("session_already_running", "A session is already running")
@@ -354,9 +351,10 @@ class ClimateSleepCurveManager:
 
     async def _execute(self, session: dict[str, Any], point: dict[str, Any], record: bool) -> dict[str, Any]:
         controller = self.controllers.get(session["controller_id"], {})
-        result = await async_execute_temperature(
+        entity_ids = list(session.get("climate_entity_ids") or [session["climate_entity_id"]])
+        result = await async_execute_temperatures(
             self.hass,
-            session["climate_entity_id"],
+            entity_ids,
             point["temperature"],
             int(controller.get("retry_count", 1)),
             int(controller.get("retry_delay_seconds", 10)),
@@ -378,6 +376,7 @@ class ClimateSleepCurveManager:
                 session["processed_points"].append(processed)
                 session["last_result"] = result["result"]
                 session["last_error"] = result.get("error")
+                session["last_entity_results"] = result["entity_results"]
                 session["updated_at"] = utcnow_iso()
                 processed_offsets = {item["offset_minutes"] for item in session["processed_points"]}
                 upcoming = [p for p in session["profile_snapshot"]["points"] if p["offset_minutes"] not in processed_offsets]
@@ -501,7 +500,13 @@ class ClimateSleepCurveManager:
         self._schedule_cancels[controller["id"]] = async_track_time_change(self.hass, start, hour=hour, minute=minute, second=second)
 
     def _event_data(self, session: dict[str, Any]) -> dict[str, Any]:
-        return {"controller_id": session["controller_id"], "session_id": session["id"], "climate_entity_id": session["climate_entity_id"]}
+        entity_ids = list(session.get("climate_entity_ids") or [session["climate_entity_id"]])
+        return {
+            "controller_id": session["controller_id"],
+            "session_id": session["id"],
+            "climate_entity_ids": entity_ids,
+            "climate_entity_id": entity_ids[0],
+        }
 
     def _broadcast(self, event_type: str, data: dict[str, Any]) -> None:
         self.hass.bus.async_fire(f"climate_sleep_curve_internal_{event_type}", data)

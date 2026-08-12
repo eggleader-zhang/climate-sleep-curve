@@ -7,7 +7,7 @@ import pytest
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import State
 
-from custom_components.climate_sleep_curve.executor import async_execute_temperature
+from custom_components.climate_sleep_curve.executor import async_execute_temperature, async_execute_temperatures
 
 
 def hass_with_state(state):
@@ -85,3 +85,28 @@ async def test_cancellation_prevents_retry():
     result = await async_execute_temperature(hass, "climate.bedroom", 27, 1, 0, lambda: active)
     assert result["attempts"] == 1
     assert hass.services.async_call.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_multiple_entities_are_checked_and_executed_independently():
+    hass = Mock()
+    states = {
+        "climate.bedroom": Mock(state="off", attributes={"temperature": 25}),
+        "climate.study": Mock(
+            state="cool",
+            attributes={"temperature": 25, "min_temp": 16, "max_temp": 30, "target_temp_step": 0.5},
+        ),
+    }
+    hass.states.get.side_effect = states.get
+    hass.services.async_call = AsyncMock()
+
+    result = await async_execute_temperatures(
+        hass, ["climate.bedroom", "climate.study"], 27, 0, 10, lambda: True
+    )
+
+    hass.services.async_call.assert_awaited_once_with(
+        "climate", "set_temperature", {"entity_id": "climate.study", "temperature": 27.0}, blocking=True
+    )
+    assert result["result"] == "applied"
+    assert [item["result"] for item in result["entity_results"]] == ["skipped_off", "applied"]
+    assert all("hvac_mode" not in call.args[2] for call in hass.services.async_call.await_args_list)

@@ -26,6 +26,17 @@ class CurveStorage:
         base = self.empty()
         base.update(data)
         base["settings"] = {**DEFAULT_SETTINGS, **data.get("settings", {})}
+        changed = False
+        for collection_name in ("controllers", "sessions"):
+            for item in base.get(collection_name, {}).values():
+                if "climate_entity_ids" not in item and item.get("climate_entity_id"):
+                    item["climate_entity_ids"] = [item["climate_entity_id"]]
+                    changed = True
+                elif item.get("climate_entity_ids") and "climate_entity_id" not in item:
+                    item["climate_entity_id"] = item["climate_entity_ids"][0]
+                    changed = True
+        if changed:
+            await self._store.async_save(deepcopy(base))
         return base
 
     async def async_save(self, data: dict[str, Any]) -> None:

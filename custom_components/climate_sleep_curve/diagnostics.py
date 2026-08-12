@@ -24,8 +24,15 @@ async def async_get_config_entry_diagnostics(hass, entry):
     for controller in controllers:
         controller["name"] = "REDACTED"
         controller["climate_entity_id"] = _redact(controller["climate_entity_id"])
+        controller["climate_entity_ids"] = [_redact(value) for value in controller["climate_entity_ids"]]
     for session in sessions:
         session["climate_entity_id"] = _redact(session["climate_entity_id"])
+        session["climate_entity_ids"] = [_redact(value) for value in session["climate_entity_ids"]]
+        for result in session.get("last_entity_results") or []:
+            result["entity_id"] = _redact(result["entity_id"])
+        for point in session.get("processed_points", []):
+            for result in point.get("entity_results") or []:
+                result["entity_id"] = _redact(result["entity_id"])
         session["profile_snapshot"]["name"] = "REDACTED"
     return {
         "integration_version": VERSION,
