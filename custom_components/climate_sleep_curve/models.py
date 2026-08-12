@@ -10,7 +10,11 @@ from typing import Any
 from uuid import uuid4
 
 from .const import (
+    FAN_MODE_CONTROL_CURVE,
+    FAN_MODE_CONTROL_NONE,
+    FAN_MODE_CONTROLS,
     MAX_DURATION_MINUTES,
+    MAX_FAN_MODE_LENGTH,
     MAX_POINTS,
     MAX_TEMPERATURE_C,
     MIN_DURATION_MINUTES,
@@ -71,11 +75,14 @@ def validate_profile(data: dict[str, Any]) -> dict[str, Any]:
     interpolation = data.get("interpolation", "step")
     if interpolation != "step":
         raise ValidationError("invalid_profile", "Only step interpolation is supported")
+    fan_mode_control = data.get("fan_mode_control", FAN_MODE_CONTROL_NONE)
+    if not isinstance(fan_mode_control, str) or fan_mode_control not in FAN_MODE_CONTROLS:
+        raise ValidationError("invalid_fan_mode", "Fan mode control must be none, auto, or curve")
     points = data.get("points")
     if not isinstance(points, list) or not 2 <= len(points) <= MAX_POINTS:
         raise ValidationError("invalid_profile", "A profile must contain 2 to 25 points")
 
-    normalized: list[dict[str, float | int]] = []
+    normalized: list[dict[str, float | int | str]] = []
     previous = -1
     for raw in points:
         if not isinstance(raw, dict):
@@ -100,7 +107,19 @@ def validate_profile(data: dict[str, Any]) -> dict[str, Any]:
             raise ValidationError("invalid_point_order", "Point offset is outside the profile duration")
         if not math.isfinite(temperature) or not MIN_TEMPERATURE_C <= temperature <= MAX_TEMPERATURE_C:
             raise ValidationError("invalid_temperature", "Temperature must be between 5 and 40 °C")
-        normalized.append({"offset_minutes": offset, "temperature": temperature})
+        point: dict[str, float | int | str] = {
+            "offset_minutes": offset,
+            "temperature": temperature,
+        }
+        if fan_mode_control == FAN_MODE_CONTROL_CURVE:
+            raw_fan_mode = raw.get("fan_mode")
+            if not isinstance(raw_fan_mode, str):
+                raise ValidationError("invalid_fan_mode", "Every fan curve point must contain a fan mode")
+            fan_mode = raw_fan_mode.strip()
+            if not 1 <= len(fan_mode) <= MAX_FAN_MODE_LENGTH or not fan_mode.isprintable():
+                raise ValidationError("invalid_fan_mode", "Fan modes must contain 1 to 64 printable characters")
+            point["fan_mode"] = fan_mode
+        normalized.append(point)
         previous = offset
     if normalized[0]["offset_minutes"] != 0:
         raise ValidationError("invalid_point_order", "The first point must start at offset zero")
@@ -108,6 +127,7 @@ def validate_profile(data: dict[str, Any]) -> dict[str, Any]:
         "name": name,
         "duration_minutes": duration,
         "interpolation": interpolation,
+        "fan_mode_control": fan_mode_control,
         "points": normalized,
     }
 
@@ -230,6 +250,7 @@ def recommend_profile(duration_minutes: int, starting_temperature: float, prefer
         "name": "Recommended sleep curve",
         "duration_minutes": duration_minutes,
         "interpolation": "step",
+        "fan_mode_control": FAN_MODE_CONTROL_NONE,
         "points": points,
         "revision": 0,
     }

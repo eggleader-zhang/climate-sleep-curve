@@ -12,9 +12,9 @@
 
 以下规则高于普通功能需求，除非维护者明确批准改变产品安全模型：
 
-1. 唯一允许调用的设备控制服务是 `climate.set_temperature`。
+1. 唯一允许调用的设备控制服务是 `climate.set_temperature` 和 `climate.set_fan_mode`。
 2. 禁止调用 `climate.turn_on`、`climate.turn_off`、`homeassistant.turn_on`、`toggle` 或任何等效电源服务。
-3. 调用 `climate.set_temperature` 时只能传递 `entity_id` 和 `temperature`，不得包含 `hvac_mode`。
+3. 调用 `climate.set_temperature` 时只能传递 `entity_id` 和 `temperature`；调用 `climate.set_fan_mode` 时只能传递 `entity_id` 和 `fan_mode`。两者均不得包含 `hvac_mode`。
 4. 目标实体不存在或状态为 `off`、`unknown`、`unavailable` 时必须直接跳过，不得尝试唤醒设备。
 5. 服务调用失败后的重试必须重新读取实体状态；如果设备已经关闭，应停止重试。
 6. 停止、替换、删除控制器或卸载集成只取消调度，不得关闭设备或恢复先前温度。
@@ -50,6 +50,7 @@
 - 节点数量 2～25。
 - 第一个 `offset_minutes` 必须为 0，之后严格递增且不超过时长。
 - 温度必须是有限数值，内部统一为 5～40 °C。
+- `fan_mode_control` 只能为 `none`、`auto` 或 `curve`；`curve` 模式下每个节点必须包含 1～64 个可打印字符的 `fan_mode`。
 
 ### 控制器
 
@@ -123,7 +124,8 @@ pytest
 改动应按风险增加测试，重点包括：
 
 - `off`、`unknown`、`unavailable` 和实体缺失时无服务调用。
-- 服务数据不含 `hvac_mode`，且没有任何电源服务调用。
+- 温度和风速服务数据不含 `hvac_mode`，且没有任何电源服务调用。
+- 不支持的风速、相同风速、风速调用失败重试，以及重试期间关闭设备。
 - 摄氏/华氏转换、最小/最大范围、步进和无效设备属性。
 - 相同目标的 `no_change` 行为。
 - 首次失败、重试、重试期间关闭和停止会话。

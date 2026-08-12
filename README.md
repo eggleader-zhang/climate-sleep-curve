@@ -4,16 +4,17 @@
 [![HACS validation](https://github.com/eggleader-zhang/climate-sleep-curve/actions/workflows/validate.yml/badge.svg)](https://github.com/eggleader-zhang/climate-sleep-curve/actions/workflows/validate.yml)
 [![Hassfest validation](https://github.com/eggleader-zhang/climate-sleep-curve/actions/workflows/hassfest.yml/badge.svg)](https://github.com/eggleader-zhang/climate-sleep-curve/actions/workflows/hassfest.yml)
 
-Climate Sleep Curve 是一个 Home Assistant 自定义集成，用于让已有的 `climate` 实体按照预设睡眠曲线，在夜间的离散时间点调整目标温度。
+Climate Sleep Curve 是一个 Home Assistant 自定义集成，用于让已有的 `climate` 实体按照预设睡眠曲线，在夜间的离散时间点调整目标温度和可选风速。
 
-它不会创建新的虚拟空调，也不会接管设备电源、运行模式、风速、摆风或湿度。可视化曲线编辑和日常控制由独立的 [Climate Sleep Curve Card](https://github.com/eggleader-zhang/climate-sleep-curve-card) 提供。
+它不会创建新的虚拟空调，也不会接管设备电源、运行模式、摆风或湿度。可视化曲线编辑和日常控制由独立的 [Climate Sleep Curve Card](https://github.com/eggleader-zhang/climate-sleep-curve-card) 提供。
 
 > [!IMPORTANT]
-> 本集成只在空调已经运行时调用 `climate.set_temperature`，且请求中不包含 `hvac_mode`。如果空调为 `off`、`unavailable`、`unknown` 或实体不存在，当前节点会被跳过，集成不会尝试启动设备。
+> 本集成只在空调已经运行时调用 `climate.set_temperature`，并在曲线启用风速控制时调用 `climate.set_fan_mode`。请求中不会包含 `hvac_mode`，也不会调用任何电源服务。如果空调为 `off`、`unavailable`、`unknown` 或实体不存在，当前节点会被跳过，集成不会尝试启动设备。
 
 ## 主要功能
 
-- 保存多条 4～12 小时的睡眠温度曲线。
+- 保存多条 4～12 小时的睡眠温度和风量曲线。
+- 支持不控制风速、全程自动风和逐节点风量曲线。
 - 为不同房间创建独立控制器，每个控制器可同时绑定多个空调实体。
 - 手动启动、停止、重新开始和按星期定时启动。
 - 会话启动时创建曲线快照，运行过程中编辑原曲线不会改变当前会话。
@@ -80,7 +81,7 @@ custom_components/climate_sleep_curve
 
 ### 曲线 Profile
 
-曲线描述从会话开始时刻算起的一组离散目标温度：
+曲线描述从会话开始时刻算起的一组离散目标温度，以及可选的目标风速：
 
 - 时长必须为 240～720 分钟。
 - 包含 2～25 个节点。
@@ -88,6 +89,7 @@ custom_components/climate_sleep_curve
 - 节点时间必须严格递增并且位于曲线时长内。
 - 内部统一使用摄氏温度，允许范围为 5～40 °C。
 - 当前仅支持 `step` 离散执行，不做连续插值。
+- 风速可设为不控制、全程 `auto`，或为每个温度节点选择一个设备原生 `fan_mode`。
 
 例如，0 分钟为 26 °C、60 分钟为 26.5 °C，表示会话启动时尝试设为 26 °C，一小时后再尝试设为 26.5 °C；两个节点之间不会连续改变温度。
 
@@ -118,7 +120,7 @@ custom_components/climate_sleep_curve
 2. 安装后端集成和前端卡片。
 3. 在卡片中点击“开始设置”。
 4. 创建默认 8 小时曲线，并多选要绑定的空调。
-5. 拖动曲线节点，保存所需温度。
+5. 拖动曲线节点，保存所需温度，并按需选择全程自动风或风量曲线。
 6. 在控制器设置中按需启用每日自动启动。
 7. 睡前先用原空调控制方式打开空调，再点击“启动曲线”。
 
@@ -135,7 +137,7 @@ custom_components/climate_sleep_curve
 | `sensor` | 显示 `idle`、`running`、`completed`、`cancelled` 等状态 |
 | `button` | 停止当前会话并从第 0 分钟重新开始 |
 
-状态传感器在运行时还会提供进度、下一执行时间、下一目标温度、会话 ID、开始/结束时间、最近结果和最近错误等属性。
+状态传感器在运行时还会提供进度、下一执行时间、下一目标温度、下一目标风速、会话 ID、开始/结束时间、最近结果和最近错误等属性。
 
 ## 服务
 
@@ -214,8 +216,9 @@ mode: single
 
 | 结果 | 含义 |
 | --- | --- |
-| `applied` | 已调用 `climate.set_temperature` |
-| `no_change` | 当前目标温度已在允许误差内，没有重复调用 |
+| `applied` | 已应用目标温度或风速 |
+| `no_change` | 当前目标温度或风速已经符合要求，没有重复调用 |
+| `skipped_unsupported` | 设备不支持该风速，温度调整仍可继续 |
 | `skipped_off` | 空调处于关闭状态 |
 | `skipped_unavailable` | 空调不可用 |
 | `skipped_unknown` | 实体不存在或状态未知 |
@@ -225,7 +228,7 @@ mode: single
 | `failed` | 服务调用失败，且允许的重试已经用尽 |
 | `partial_failure` | 多台设备中至少一台失败，其他设备执行结果见 `entity_results` |
 
-对华氏设备，曲线中的摄氏温度会在执行时转换为华氏温度，再按照设备的 `min_temp`、`max_temp` 和 `target_temp_step` 进行裁剪与吸附。多空调控制器的每个节点还会保存逐设备 `entity_results`，方便区分某台设备的跳过、成功或失败状态。
+对华氏设备，曲线中的摄氏温度会在执行时转换为华氏温度，再按照设备的 `min_temp`、`max_temp` 和 `target_temp_step` 进行裁剪与吸附。风量曲线使用设备在 `fan_modes` 中公布的原生值；多空调控制器只在前端提供共同支持的风速。每个节点会保存逐设备 `temperature_result`、`fan_result` 和聚合结果，方便区分某台设备的跳过、成功或失败状态。
 
 ## 重启、历史和设置
 
@@ -251,7 +254,7 @@ mode: single
 - `climate_sleep_curve_session_stopped`
 - `climate_sleep_curve_session_completed`
 
-事件数据包含控制器 ID、会话 ID、`climate_entity_ids` 目标空调列表，以及用于旧客户端兼容的首个 `climate_entity_id`；节点事件还包含计划时间、处理时间、目标温度、聚合结果、逐设备 `entity_results` 和尝试次数。可以在“开发者工具 → 事件”中监听，用于通知或调试。
+事件数据包含控制器 ID、会话 ID、`climate_entity_ids` 目标空调列表，以及用于旧客户端兼容的首个 `climate_entity_id`；节点事件还包含计划时间、处理时间、目标温度、目标风速、聚合结果、逐设备 `entity_results` 和尝试次数。可以在“开发者工具 → 事件”中监听，用于通知或调试。
 
 ## 故障排查
 
@@ -293,7 +296,7 @@ mode: single
 custom_components/climate_sleep_curve/
 ├── __init__.py         # 配置条目、服务注册和生命周期
 ├── manager.py          # 曲线、控制器、会话、持久化和调度
-├── executor.py         # 安全调温、换算、裁剪、幂等和重试
+├── executor.py         # 安全调温和调风、换算、裁剪、幂等和重试
 ├── models.py           # 数据校验和会话快照
 ├── websocket_api.py    # 卡片管理 API 和状态订阅
 ├── sensor.py           # 状态实体
@@ -320,7 +323,7 @@ pytest
 
 ## 版本边界
 
-当前版本为 `0.3.0`。这一版本支持一个控制器绑定多个空调并执行离散节点；单个节点最多同时处理 4 台设备，更多目标会排队执行，避免瞬间产生过多服务调用。集成不做连续插值，不创建虚拟 `climate` 实体，也不控制电源、HVAC 模式、风速、摆风或湿度。
+当前版本为 `0.4.0`。这一版本支持温度曲线、全程自动风和逐节点风量曲线；单个节点最多同时处理 4 台设备，更多目标会排队执行，避免瞬间产生过多服务调用。集成不做连续插值，不创建虚拟 `climate` 实体，也不控制电源、HVAC 模式、摆风或湿度。
 
 ## 许可证
 

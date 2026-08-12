@@ -25,6 +25,35 @@ def test_profile_validation():
     result = validate_profile(profile())
     assert result["points"][0]["offset_minutes"] == 0
     assert result["interpolation"] == "step"
+    assert result["fan_mode_control"] == "none"
+
+
+def test_profile_validates_fan_curve_points():
+    value = profile()
+    value["fan_mode_control"] = "curve"
+    for index, point in enumerate(value["points"]):
+        point["fan_mode"] = "auto" if index == 0 else "low"
+
+    result = validate_profile(value)
+
+    assert [point["fan_mode"] for point in result["points"]] == ["auto", "low", "low", "low"]
+
+
+@pytest.mark.parametrize("control", ["invalid", 1, None, []])
+def test_profile_rejects_invalid_fan_control(control):
+    value = profile()
+    value["fan_mode_control"] = control
+    with pytest.raises(ValidationError) as error:
+        validate_profile(value)
+    assert error.value.code == "invalid_fan_mode"
+
+
+def test_fan_curve_requires_every_point_mode():
+    value = profile()
+    value["fan_mode_control"] = "curve"
+    with pytest.raises(ValidationError) as error:
+        validate_profile(value)
+    assert error.value.code == "invalid_fan_mode"
 
 
 @pytest.mark.parametrize("mutation", [
@@ -89,10 +118,16 @@ def test_controller_rejects_non_boolean_enabled(value):
 
 
 def test_session_uses_snapshot():
-    curve = {"id": "p", **validate_profile(profile())}
+    value = profile()
+    value["fan_mode_control"] = "curve"
+    for point in value["points"]:
+        point["fan_mode"] = "low"
+    curve = {"id": "p", **validate_profile(value)}
     session = make_session({"id": "c", "climate_entity_ids": ["climate.bedroom", "climate.study"]}, curve, "manual", datetime.now(timezone.utc))
     curve["points"][0]["temperature"] = 30
+    curve["points"][0]["fan_mode"] = "high"
     assert session["profile_snapshot"]["points"][0]["temperature"] == 26
+    assert session["profile_snapshot"]["points"][0]["fan_mode"] == "low"
     assert session["climate_entity_ids"] == ["climate.bedroom", "climate.study"]
 
 

@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+import custom_components.climate_sleep_curve.manager as manager_module
 from custom_components.climate_sleep_curve.manager import ClimateSleepCurveManager
 from custom_components.climate_sleep_curve.models import ValidationError
 from custom_components.climate_sleep_curve.storage import CurveStorage
@@ -143,3 +144,39 @@ async def test_plural_only_controller_update_does_not_require_compatibility_alia
 
     assert result["climate_entity_ids"] == ["climate.bedroom"]
     assert result["climate_entity_id"] == "climate.bedroom"
+
+
+@pytest.mark.asyncio
+async def test_point_execution_uses_snapshot_fan_curve_and_records_results(monkeypatch):
+    manager = build_manager()
+    profile = deepcopy(manager.profiles["profile"])
+    profile["fan_mode_control"] = "curve"
+    profile["points"][0]["fan_mode"] = "low"
+    session = manager_module.make_session(
+        manager.controllers["controller"], profile, "manual", manager_module.dt_util.utcnow()
+    )
+    manager.sessions[session["id"]] = session
+    execute = AsyncMock(return_value={
+        "result": "applied",
+        "attempts": 1,
+        "error": None,
+        "entity_results": [{
+            "entity_id": "climate.bedroom",
+            "result": "applied",
+            "temperature_result": "applied",
+            "fan_result": "applied",
+        }],
+    })
+    monkeypatch.setattr(manager_module, "async_execute_climate_targets", execute)
+
+    await manager._execute(session, session["profile_snapshot"]["points"][0], record=True)
+
+    assert execute.await_args.args[3] == "low"
+    assert session["processed_points"][0]["target_fan_mode"] == "low"
+    assert session["last_entity_results"][0]["fan_result"] == "applied"
+
+
+def test_auto_fan_target_is_resolved_for_every_point():
+    assert manager_module._target_fan_mode(
+        {"fan_mode_control": "auto"}, {"offset_minutes": 120, "temperature": 27}
+    ) == "auto"

@@ -27,6 +27,10 @@ class CurveStorage:
         base.update(data)
         base["settings"] = {**DEFAULT_SETTINGS, **data.get("settings", {})}
         changed = False
+        for profile in base.get("profiles", {}).values():
+            if "fan_mode_control" not in profile:
+                profile["fan_mode_control"] = "none"
+                changed = True
         for collection_name in ("controllers", "sessions"):
             for item in base.get(collection_name, {}).values():
                 if "climate_entity_ids" not in item and item.get("climate_entity_id"):
@@ -35,6 +39,11 @@ class CurveStorage:
                 elif item.get("climate_entity_ids") and "climate_entity_id" not in item:
                     item["climate_entity_id"] = item["climate_entity_ids"][0]
                     changed = True
+        for session in base.get("sessions", {}).values():
+            snapshot = session.get("profile_snapshot")
+            if isinstance(snapshot, dict) and "fan_mode_control" not in snapshot:
+                snapshot["fan_mode_control"] = "none"
+                changed = True
         if changed:
             await self._store.async_save(deepcopy(base))
         return base

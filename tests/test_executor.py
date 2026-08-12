@@ -10,6 +10,8 @@ from homeassistant.core import State
 
 from custom_components.climate_sleep_curve.executor import (
     MAX_PARALLEL_TARGETS,
+    async_execute_climate_targets,
+    async_execute_fan_mode,
     async_execute_temperature,
     async_execute_temperatures,
 )
@@ -71,6 +73,89 @@ async def test_invalid_temperature_step_falls_back_safely():
     result = await async_execute_temperature(hass, "climate.bedroom", 27.1, 0, 10, lambda: True)
     assert result["result"] == "applied"
     assert hass.services.async_call.await_args.args[2]["temperature"] == 27.0
+
+
+@pytest.mark.asyncio
+async def test_only_safe_set_fan_mode_payload_is_sent():
+    hass = hass_with_state(State("climate.bedroom", "cool", {
+        "temperature": 25,
+        "fan_mode": "high",
+        "fan_modes": ["auto", "low", "high"],
+    }))
+
+    result = await async_execute_fan_mode(hass, "climate.bedroom", "auto", 0, 10, lambda: True)
+
+    assert result["result"] == "applied"
+    hass.services.async_call.assert_awaited_once_with(
+        "climate", "set_fan_mode", {"entity_id": "climate.bedroom", "fan_mode": "auto"}, blocking=True
+    )
+    assert "hvac_mode" not in hass.services.async_call.await_args.args[2]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state_value,expected", [
+    ("off", "skipped_off"),
+    ("unavailable", "skipped_unavailable"),
+    ("unknown", "skipped_unknown"),
+])
+async def test_non_running_entity_never_receives_fan_call(state_value, expected):
+    hass = hass_with_state(State("climate.bedroom", state_value, {"fan_modes": ["auto"]}))
+
+    result = await async_execute_fan_mode(hass, "climate.bedroom", "auto", 1, 0, lambda: True)
+
+    assert result["result"] == expected
+    hass.services.async_call.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_unsupported_fan_mode_is_skipped_without_service_call():
+    hass = hass_with_state(State("climate.bedroom", "cool", {
+        "fan_mode": "low", "fan_modes": ["low", "high"],
+    }))
+
+    result = await async_execute_fan_mode(hass, "climate.bedroom", "auto", 1, 0, lambda: True)
+
+    assert result["result"] == "skipped_unsupported"
+    hass.services.async_call.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_fan_retry_rechecks_state_and_stops_when_device_is_off():
+    running = State("climate.bedroom", "cool", {"fan_mode": "high", "fan_modes": ["auto", "high"]})
+    stopped = State("climate.bedroom", "off", {"fan_mode": "high", "fan_modes": ["auto", "high"]})
+    hass = hass_with_state(running)
+    hass.states.get.side_effect = [running, stopped]
+    hass.services.async_call.side_effect = RuntimeError("temporary failure")
+
+    result = await async_execute_fan_mode(hass, "climate.bedroom", "auto", 1, 0, lambda: True)
+
+    assert result["result"] == "skipped_off_after_failure"
+    assert hass.services.async_call.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_temperature_and_fan_results_are_reported_independently():
+    hass = hass_with_state(State("climate.bedroom", "cool", {
+        "temperature": 25,
+        "min_temp": 16,
+        "max_temp": 30,
+        "target_temp_step": 0.5,
+        "fan_mode": "low",
+        "fan_modes": ["auto", "low"],
+    }))
+
+    result = await async_execute_climate_targets(
+        hass, ["climate.bedroom"], 27, "auto", 0, 10, lambda: True
+    )
+
+    assert result["result"] == "applied"
+    assert result["entity_results"][0]["temperature_result"] == "applied"
+    assert result["entity_results"][0]["fan_result"] == "applied"
+    assert [call.args[1] for call in hass.services.async_call.await_args_list] == [
+        "set_temperature", "set_fan_mode"
+    ]
+    assert all(set(call.args[2]) <= {"entity_id", "temperature", "fan_mode"}
+               for call in hass.services.async_call.await_args_list)
 
 
 @pytest.mark.asyncio

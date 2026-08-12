@@ -4,7 +4,7 @@ from __future__ import annotations
 
 DOMAIN = "climate_sleep_curve"
 NAME = "Climate Sleep Curve"
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 STORE_KEY = DOMAIN
 STORE_VERSION = 1
 PLATFORMS = ["sensor", "switch", "select", "button"]
@@ -14,6 +14,15 @@ MAX_DURATION_MINUTES = 720
 MAX_POINTS = 25
 MIN_TEMPERATURE_C = 5.0
 MAX_TEMPERATURE_C = 40.0
+FAN_MODE_CONTROL_NONE = "none"
+FAN_MODE_CONTROL_AUTO = "auto"
+FAN_MODE_CONTROL_CURVE = "curve"
+FAN_MODE_CONTROLS = {
+    FAN_MODE_CONTROL_NONE,
+    FAN_MODE_CONTROL_AUTO,
+    FAN_MODE_CONTROL_CURVE,
+}
+MAX_FAN_MODE_LENGTH = 64
 
 SIGNAL_UPDATED = f"{DOMAIN}_updated"
 SIGNAL_CONTROLLER_ADDED = f"{DOMAIN}_controller_added"

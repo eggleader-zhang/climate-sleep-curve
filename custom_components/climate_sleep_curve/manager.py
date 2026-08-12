@@ -19,6 +19,9 @@ from .const import (
     EVENT_SESSION_COMPLETED,
     EVENT_SESSION_STARTED,
     EVENT_SESSION_STOPPED,
+    FAN_MODE_CONTROL_AUTO,
+    FAN_MODE_CONTROL_CURVE,
+    FAN_MODE_CONTROLS,
     MAX_DURATION_MINUTES,
     MAX_POINTS,
     MIN_DURATION_MINUTES,
@@ -26,9 +29,20 @@ from .const import (
     SIGNAL_UPDATED,
     STORE_VERSION,
 )
-from .executor import async_execute_temperatures
+from .executor import async_execute_climate_targets
 from .models import RevisionConflict, ValidationError, make_session, new_id, parse_utc, utcnow_iso, validate_controller, validate_profile
 from .storage import CurveStorage
+
+
+def _target_fan_mode(profile: dict[str, Any], point: dict[str, Any]) -> str | None:
+    """Resolve the fan target for one immutable profile point."""
+    fan_mode_control = profile.get("fan_mode_control", "none")
+    if fan_mode_control == FAN_MODE_CONTROL_AUTO:
+        return "auto"
+    if fan_mode_control == FAN_MODE_CONTROL_CURVE:
+        return point.get("fan_mode")
+    return None
+
 
 class ClimateSleepCurveManager:
     """Own all integration state and one-shot callbacks."""
@@ -136,6 +150,7 @@ class ClimateSleepCurveManager:
                 "min_duration_minutes": MIN_DURATION_MINUTES,
                 "max_duration_minutes": MAX_DURATION_MINUTES,
                 "max_points": MAX_POINTS,
+                "fan_mode_controls": sorted(FAN_MODE_CONTROLS),
             },
         }
 
@@ -362,10 +377,13 @@ class ClimateSleepCurveManager:
     async def _execute(self, session: dict[str, Any], point: dict[str, Any], record: bool) -> dict[str, Any]:
         controller = self.controllers.get(session["controller_id"], {})
         entity_ids = list(session.get("climate_entity_ids") or [session["climate_entity_id"]])
-        result = await async_execute_temperatures(
+        profile_snapshot = session["profile_snapshot"]
+        target_fan_mode = _target_fan_mode(profile_snapshot, point)
+        result = await async_execute_climate_targets(
             self.hass,
             entity_ids,
             point["temperature"],
+            target_fan_mode,
             int(controller.get("retry_count", 1)),
             int(controller.get("retry_delay_seconds", 10)),
             lambda: (
@@ -380,6 +398,7 @@ class ClimateSleepCurveManager:
                 "scheduled_at": (parse_utc(session["started_at"]) + timedelta(minutes=point["offset_minutes"])).isoformat().replace("+00:00", "Z"),
                 "processed_at": utcnow_iso(),
                 "target_temperature": point["temperature"],
+                "target_fan_mode": target_fan_mode,
                 **result,
             }
             async with self._transaction():
@@ -472,7 +491,9 @@ class ClimateSleepCurveManager:
                 if scheduled <= now:
                     session["processed_points"].append({
                         "offset_minutes": point["offset_minutes"], "scheduled_at": scheduled.isoformat().replace("+00:00", "Z"),
-                        "processed_at": utcnow_iso(), "target_temperature": point["temperature"], "result": "missed_during_restart",
+                        "processed_at": utcnow_iso(), "target_temperature": point["temperature"],
+                        "target_fan_mode": _target_fan_mode(session["profile_snapshot"], point),
+                        "result": "missed_during_restart",
                         "attempts": 0, "error": None,
                     })
                     session["last_result"] = "missed_during_restart"
@@ -536,6 +557,9 @@ class ClimateSleepCurveManager:
             "state": "running", "session": session, "progress_percent": round(progress, 1),
             "next_execution_at": (started + timedelta(minutes=next_offset)).isoformat().replace("+00:00", "Z") if next_offset is not None else None,
             "next_target_temperature": next_point["temperature"] if next_point else None,
+            "next_target_fan_mode": (
+                _target_fan_mode(session["profile_snapshot"], next_point) if next_point else None
+            ),
         }
 
     def _prune_history(self) -> bool:

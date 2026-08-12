@@ -13,9 +13,12 @@ async def test_load_migrates_legacy_entity_fields():
     storage._store = AsyncMock()
     storage._store.async_load.return_value = {
         "schema_version": 1,
-        "profiles": {},
+        "profiles": {"p": {"name": "Legacy", "points": []}},
         "controllers": {"c": {"climate_entity_id": "climate.bedroom"}},
-        "sessions": {"s": {"climate_entity_id": "climate.bedroom"}},
+        "sessions": {"s": {
+            "climate_entity_id": "climate.bedroom",
+            "profile_snapshot": {"name": "Legacy snapshot", "points": []},
+        }},
         "settings": {},
     }
 
@@ -23,4 +26,6 @@ async def test_load_migrates_legacy_entity_fields():
 
     assert result["controllers"]["c"]["climate_entity_ids"] == ["climate.bedroom"]
     assert result["sessions"]["s"]["climate_entity_ids"] == ["climate.bedroom"]
+    assert result["profiles"]["p"]["fan_mode_control"] == "none"
+    assert result["sessions"]["s"]["profile_snapshot"]["fan_mode_control"] == "none"
     storage._store.async_save.assert_awaited_once()
