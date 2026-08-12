@@ -1,8 +1,12 @@
 # Climate Sleep Curve / 空调睡眠曲线
 
+[![GitHub release](https://img.shields.io/github/v/release/eggleader-zhang/climate-sleep-curve)](https://github.com/eggleader-zhang/climate-sleep-curve/releases)
+[![HACS validation](https://github.com/eggleader-zhang/climate-sleep-curve/actions/workflows/validate.yml/badge.svg)](https://github.com/eggleader-zhang/climate-sleep-curve/actions/workflows/validate.yml)
+[![Hassfest validation](https://github.com/eggleader-zhang/climate-sleep-curve/actions/workflows/hassfest.yml/badge.svg)](https://github.com/eggleader-zhang/climate-sleep-curve/actions/workflows/hassfest.yml)
+
 Climate Sleep Curve 是一个 Home Assistant 自定义集成，用于让已有的 `climate` 实体按照预设睡眠曲线，在夜间的离散时间点调整目标温度。
 
-它不会创建新的虚拟空调，也不会接管设备电源、运行模式、风速、摆风或湿度。可视化曲线编辑和日常控制由独立的 [Climate Sleep Curve Card](http://172.20.0.3:3000/eggleader/climate-sleep-curve-card) 提供。
+它不会创建新的虚拟空调，也不会接管设备电源、运行模式、风速、摆风或湿度。可视化曲线编辑和日常控制由独立的 [Climate Sleep Curve Card](https://github.com/eggleader-zhang/climate-sleep-curve-card) 提供。
 
 > [!IMPORTANT]
 > 本集成只在空调已经运行时调用 `climate.set_temperature`，且请求中不包含 `hvac_mode`。如果空调为 `off`、`unavailable`、`unknown` 或实体不存在，当前节点会被跳过，集成不会尝试启动设备。
@@ -31,13 +35,15 @@ Climate Sleep Curve 是一个 Home Assistant 自定义集成，用于让已有�
 
 ### 使用 HACS 自定义仓库
 
+[![在 HACS 中打开此仓库](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=eggleader-zhang&repository=climate-sleep-curve&category=integration)
+
 1. 打开 HACS。
 2. 进入右上角菜单中的“自定义仓库”。
-3. 添加本仓库地址，类别选择 **Integration**。
+3. 添加 `https://github.com/eggleader-zhang/climate-sleep-curve`，类别选择 **Integration**。
 4. 搜索并下载 **Climate Sleep Curve**。
 5. 重启 Home Assistant。
 
-私有 Gitea 是否能直接作为 HACS 来源，取决于你的 HACS 版本和网络环境。如果无法识别，请使用手动安装；正式公开发布时建议将仓库镜像到 GitHub。
+HACS 使用公开 GitHub 仓库作为下载源。Gitea 仅作为项目镜像，不应填写到 HACS 自定义仓库中。
 
 ### 手动安装
 

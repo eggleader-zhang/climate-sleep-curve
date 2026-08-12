@@ -1,11 +1,13 @@
 {
   "domain": "climate_sleep_curve",
   "name": "Climate Sleep Curve",
+  "codeowners": ["@eggleader-zhang"],
   "version": "0.3.0",
   "config_flow": true,
+  "documentation": "https://github.com/eggleader-zhang/climate-sleep-curve",
   "integration_type": "helper",
   "iot_class": "local_push",
+  "issue_tracker": "https://github.com/eggleader-zhang/climate-sleep-curve/issues",
   "single_config_entry": true,
-  "codeowners": [],
   "requirements": []
 }
