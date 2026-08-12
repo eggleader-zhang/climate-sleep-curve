@@ -6,7 +6,7 @@
 
 Climate Sleep Curve 是一个 Home Assistant 自定义集成，用于让已有的 `climate` 实体按照预设睡眠曲线，在夜间的离散时间点调整目标温度和可选风速。
 
-它不会创建新的虚拟空调，也不会接管设备电源、运行模式、摆风或湿度。可视化曲线编辑和日常控制由独立的 [Climate Sleep Curve Card](https://github.com/eggleader-zhang/climate-sleep-curve-card) 提供。
+它不会创建新的虚拟空调，不会打开设备，也不会改变运行模式、摆风或湿度；电源控制仅限用户明确启用后的自然结束关机。可视化曲线编辑和日常控制由独立的 [Climate Sleep Curve Card](https://github.com/eggleader-zhang/climate-sleep-curve-card) 提供。
 
 > [!IMPORTANT]
 > 本集成只在空调已经运行时调用 `climate.set_temperature`，并在曲线启用风速控制时调用 `climate.set_fan_mode`。只有控制器明确启用开关且会话自然运行到末尾时，才会调用 `climate.turn_off`。请求中不会包含 `hvac_mode`，集成永远不会尝试启动设备；空调为 `off`、`unavailable`、`unknown` 或实体不存在时会安全跳过。
