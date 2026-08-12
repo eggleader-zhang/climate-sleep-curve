@@ -313,3 +313,71 @@ async def test_restart_expiry_never_replays_power_off(monkeypatch):
 
     turn_off.assert_not_awaited()
     assert session["status"] == "completed_after_restart"
+
+
+@pytest.mark.asyncio
+async def test_endpoint_node_runs_before_natural_completion_power_off(monkeypatch):
+    manager = build_manager()
+    manager.controllers["controller"]["turn_off_after_completion"] = True
+    profile = deepcopy(manager.profiles["profile"])
+    profile["points"].append({"offset_minutes": 240, "temperature": 28})
+    session = manager_module.make_session(
+        manager.controllers["controller"],
+        profile,
+        "manual",
+        manager_module.dt_util.utcnow(),
+    )
+    manager.sessions[session["id"]] = session
+    order = []
+
+    async def execute(*_args, **_kwargs):
+        order.append("endpoint")
+        return {
+            "result": "applied",
+            "attempts": 1,
+            "error": None,
+            "entity_results": [],
+        }
+
+    async def turn_off(*_args, **_kwargs):
+        order.append("turn_off")
+        return {
+            "result": "applied",
+            "attempts": 1,
+            "error": None,
+            "entity_results": [],
+        }
+
+    monkeypatch.setattr(manager_module, "async_execute_climate_targets", execute)
+    monkeypatch.setattr(manager_module, "async_turn_off_climates", turn_off)
+
+    await manager.async_complete_session(session["id"])
+
+    assert order == ["endpoint", "turn_off"]
+    assert session["status"] == "completed"
+    assert session["processed_points"][-1]["offset_minutes"] == 240
+
+
+def test_endpoint_node_is_owned_by_completion_callback(monkeypatch):
+    manager = build_manager()
+    profile = deepcopy(manager.profiles["profile"])
+    profile["points"].append({"offset_minutes": 240, "temperature": 28})
+    session = manager_module.make_session(
+        manager.controllers["controller"],
+        profile,
+        "manual",
+        manager_module.dt_util.utcnow(),
+    )
+    session["processed_points"].append({"offset_minutes": 0})
+    scheduled_times = []
+
+    def track(_hass, _callback, when):
+        scheduled_times.append(when)
+        return Mock()
+
+    monkeypatch.setattr(manager_module, "async_track_point_in_utc_time", track)
+
+    ClimateSleepCurveManager._schedule_session(manager, session)
+
+    ends_at = manager_module.parse_utc(session["ends_at"])
+    assert scheduled_times.count(ends_at) == 1

@@ -30,7 +30,16 @@ from .const import (
     STORE_VERSION,
 )
 from .executor import async_execute_climate_targets, async_turn_off_climates
-from .models import RevisionConflict, ValidationError, make_session, new_id, parse_utc, utcnow_iso, validate_controller, validate_profile
+from .models import (
+    RevisionConflict,
+    ValidationError,
+    make_session,
+    new_id,
+    parse_utc,
+    utcnow_iso,
+    validate_controller,
+    validate_profile,
+)
 from .storage import CurveStorage
 
 
@@ -42,6 +51,11 @@ def _target_fan_mode(profile: dict[str, Any], point: dict[str, Any]) -> str | No
     if fan_mode_control == FAN_MODE_CONTROL_CURVE:
         return point.get("fan_mode")
     return None
+
+
+def _session_entity_ids(session: dict[str, Any]) -> list[str]:
+    """Return the immutable climate targets for a session."""
+    return list(session.get("climate_entity_ids") or [session["climate_entity_id"]])
 
 
 class ClimateSleepCurveManager:
@@ -383,9 +397,46 @@ class ClimateSleepCurveManager:
                 return
             await self._execute(session, point, record=True)
 
-    async def _execute(self, session: dict[str, Any], point: dict[str, Any], record: bool) -> dict[str, Any]:
+    async def async_complete_session(self, session_id: str) -> None:
+        """Process an endpoint node before naturally completing a session."""
+        session = self.sessions.get(session_id)
+        if session is None:
+            return
+        lock = self._locks.setdefault(session["controller_id"], asyncio.Lock())
+        async with lock:
+            if session["status"] != "running":
+                return
+            endpoint = session["profile_snapshot"]["duration_minutes"]
+            endpoint_point = next(
+                (
+                    point
+                    for point in session["profile_snapshot"]["points"]
+                    if point["offset_minutes"] == endpoint
+                ),
+                None,
+            )
+            endpoint_processed = any(
+                point["offset_minutes"] == endpoint
+                for point in session["processed_points"]
+            )
+            if endpoint_point is not None and not endpoint_processed:
+                await self._execute(session, endpoint_point, record=True)
+            if self._unloading or session["id"] in self._cancel_requests:
+                return
+            await self._async_finish_locked(
+                session,
+                "completed",
+                EVENT_SESSION_COMPLETED,
+            )
+
+    async def _execute(
+        self,
+        session: dict[str, Any],
+        point: dict[str, Any],
+        record: bool,
+    ) -> dict[str, Any]:
         controller = self.controllers.get(session["controller_id"], {})
-        entity_ids = list(session.get("climate_entity_ids") or [session["climate_entity_id"]])
+        entity_ids = _session_entity_ids(session)
         profile_snapshot = session["profile_snapshot"]
         target_fan_mode = _target_fan_mode(profile_snapshot, point)
         result = await async_execute_climate_targets(
@@ -436,7 +487,7 @@ class ClimateSleepCurveManager:
             return
         turn_off_result = None
         if status == "completed" and session.get("turn_off_after_completion", False):
-            entity_ids = list(session.get("climate_entity_ids") or [session["climate_entity_id"]])
+            entity_ids = _session_entity_ids(session)
             turn_off_result = await async_turn_off_climates(
                 self.hass,
                 entity_ids,
@@ -471,29 +522,45 @@ class ClimateSleepCurveManager:
         callbacks = []
         now = dt_util.utcnow()
         started = parse_utc(session["started_at"])
+        ends_at = parse_utc(session["ends_at"])
         processed = {p["offset_minutes"] for p in session["processed_points"]}
         for point in session["profile_snapshot"]["points"]:
             when = started + timedelta(minutes=point["offset_minutes"])
-            if point["offset_minutes"] in processed or when <= now:
+            if (
+                point["offset_minutes"] in processed
+                or when <= now
+                or when == ends_at
+            ):
                 continue
-            callbacks.append(async_track_point_in_utc_time(self.hass, self._point_callback(session["id"], point["offset_minutes"]), when))
-        ends_at = parse_utc(session["ends_at"])
+            callbacks.append(
+                async_track_point_in_utc_time(
+                    self.hass,
+                    self._point_callback(session["id"], point["offset_minutes"]),
+                    when,
+                )
+            )
         if ends_at > now:
-            callbacks.append(async_track_point_in_utc_time(self.hass, self._end_callback(session["id"]), ends_at))
+            callbacks.append(
+                async_track_point_in_utc_time(
+                    self.hass,
+                    self._end_callback(session["id"]),
+                    ends_at,
+                )
+            )
         self._session_cancels[session["id"]] = callbacks
 
     def _point_callback(self, session_id: str, offset: int):
         @callback
         def run(_now: datetime) -> None:
             self._create_task(self.async_process_point(session_id, offset))
+
         return run
 
     def _end_callback(self, session_id: str):
         @callback
         def run(_now: datetime) -> None:
-            session = self.sessions.get(session_id)
-            if session:
-                self._create_task(self._async_finish(session, "completed"))
+            self._create_task(self.async_complete_session(session_id))
+
         return run
 
     async def _async_restore_sessions(self) -> None:
@@ -556,7 +623,7 @@ class ClimateSleepCurveManager:
         self._schedule_cancels[controller["id"]] = async_track_time_change(self.hass, start, hour=hour, minute=minute, second=second)
 
     def _event_data(self, session: dict[str, Any]) -> dict[str, Any]:
-        entity_ids = list(session.get("climate_entity_ids") or [session["climate_entity_id"]])
+        entity_ids = _session_entity_ids(session)
         return {
             "controller_id": session["controller_id"],
             "session_id": session["id"],

@@ -188,7 +188,7 @@ def validate_controller(data: dict[str, Any], profile_ids: set[str]) -> dict[str
         or not isinstance(automatic_enabled, bool)
         or not isinstance(turn_off_after_completion, bool)
     ):
-        raise ValidationError("invalid_controller", "Enabled options must be boolean values")
+        raise ValidationError("invalid_controller", "Controller options must be boolean values")
     return {
         "name": name,
         "climate_entity_ids": entity_ids,
