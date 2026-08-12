@@ -81,6 +81,7 @@ def test_controller_validation():
     assert result["automatic_start"]["weekdays"] == [0, 6]
     assert result["climate_entity_ids"] == ["climate.bedroom", "climate.study"]
     assert result["climate_entity_id"] == "climate.bedroom"
+    assert result["turn_off_after_completion"] is False
 
 
 def test_controller_accepts_legacy_single_entity():
@@ -117,18 +118,32 @@ def test_controller_rejects_non_boolean_enabled(value):
         }, {"p"})
 
 
+@pytest.mark.parametrize("value", ["true", 0, 1, None])
+def test_controller_rejects_non_boolean_turn_off_setting(value):
+    with pytest.raises(ValidationError):
+        validate_controller({
+            "name": "Bedroom", "climate_entity_id": "climate.bedroom", "profile_id": "p",
+            "turn_off_after_completion": value,
+        }, {"p"})
+
+
 def test_session_uses_snapshot():
     value = profile()
     value["fan_mode_control"] = "curve"
     for point in value["points"]:
         point["fan_mode"] = "low"
     curve = {"id": "p", **validate_profile(value)}
-    session = make_session({"id": "c", "climate_entity_ids": ["climate.bedroom", "climate.study"]}, curve, "manual", datetime.now(timezone.utc))
+    session = make_session({
+        "id": "c",
+        "climate_entity_ids": ["climate.bedroom", "climate.study"],
+        "turn_off_after_completion": True,
+    }, curve, "manual", datetime.now(timezone.utc))
     curve["points"][0]["temperature"] = 30
     curve["points"][0]["fan_mode"] = "high"
     assert session["profile_snapshot"]["points"][0]["temperature"] == 26
     assert session["profile_snapshot"]["points"][0]["fan_mode"] == "low"
     assert session["climate_entity_ids"] == ["climate.bedroom", "climate.study"]
+    assert session["turn_off_after_completion"] is True
 
 
 def test_recommendation_is_deterministic():

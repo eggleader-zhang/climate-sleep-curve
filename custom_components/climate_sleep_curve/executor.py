@@ -1,4 +1,4 @@
-"""Safe temperature and fan-mode point execution."""
+"""Safe climate point execution and opt-in completion power-off."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from homeassistant.util.unit_conversion import TemperatureConverter
 CLIMATE_DOMAIN = "climate"
 SERVICE_SET_TEMPERATURE = "set_temperature"
 SERVICE_SET_FAN_MODE = "set_fan_mode"
+SERVICE_TURN_OFF = "turn_off"
 ATTR_TEMPERATURE = "temperature"
 ATTR_FAN_MODE = "fan_mode"
 ATTR_FAN_MODES = "fan_modes"
@@ -184,6 +185,44 @@ async def async_execute_fan_mode(
     raise AssertionError("unreachable")
 
 
+async def async_turn_off_climate(
+    hass: HomeAssistant,
+    entity_id: str,
+    is_active: Callable[[], bool],
+    *,
+    service_limiter: asyncio.Semaphore | None = None,
+) -> dict[str, Any]:
+    """Turn off one running climate entity after an opted-in natural completion."""
+    acquired = False
+    if service_limiter is not None:
+        await service_limiter.acquire()
+        acquired = True
+    try:
+        if not is_active():
+            return {"result": "skipped_cancelled", "attempts": 0, "error": None}
+        state = hass.states.get(entity_id)
+        if state is None or state.state == "unknown":
+            return {"result": "skipped_unknown", "attempts": 0, "error": None}
+        if state.state == "unavailable":
+            return {"result": "skipped_unavailable", "attempts": 0, "error": None}
+        if state.state == "off":
+            return {"result": "no_change", "attempts": 0, "error": None}
+        try:
+            # This opt-in completion action never includes hvac_mode or other data.
+            await hass.services.async_call(
+                CLIMATE_DOMAIN,
+                SERVICE_TURN_OFF,
+                {ATTR_ENTITY_ID: entity_id},
+                blocking=True,
+            )
+            return {"result": "applied", "attempts": 1, "error": None}
+        except Exception as err:  # Home Assistant service integrations may raise arbitrary errors.
+            return {"result": "failed", "attempts": 1, "error": str(err)[:256]}
+    finally:
+        if acquired:
+            service_limiter.release()
+
+
 def _aggregate_results(entity_results: list[dict[str, Any]]) -> dict[str, Any]:
     """Aggregate per-entity execution results without hiding partial failures."""
     outcomes = [result["result"] for result in entity_results]
@@ -303,3 +342,25 @@ async def async_execute_climate_targets(
 
     entity_results = await asyncio.gather(*(execute_entity(entity_id) for entity_id in entity_ids))
     return _aggregate_results(list(entity_results))
+
+
+async def async_turn_off_climates(
+    hass: HomeAssistant,
+    entity_ids: list[str],
+    is_active: Callable[[], bool],
+) -> dict[str, Any]:
+    """Turn off opted-in climate targets independently without retries."""
+    semaphore = asyncio.Semaphore(MAX_PARALLEL_TARGETS)
+    raw_results = await asyncio.gather(*(
+        async_turn_off_climate(
+            hass,
+            entity_id,
+            is_active,
+            service_limiter=semaphore,
+        )
+        for entity_id in entity_ids
+    ))
+    return _aggregate_results([
+        {"entity_id": entity_id, **result}
+        for entity_id, result in zip(entity_ids, raw_results, strict=True)
+    ])

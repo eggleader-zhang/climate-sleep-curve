@@ -9,7 +9,7 @@ Climate Sleep Curve 是一个 Home Assistant 自定义集成，用于让已有�
 它不会创建新的虚拟空调，也不会接管设备电源、运行模式、摆风或湿度。可视化曲线编辑和日常控制由独立的 [Climate Sleep Curve Card](https://github.com/eggleader-zhang/climate-sleep-curve-card) 提供。
 
 > [!IMPORTANT]
-> 本集成只在空调已经运行时调用 `climate.set_temperature`，并在曲线启用风速控制时调用 `climate.set_fan_mode`。请求中不会包含 `hvac_mode`，也不会调用任何电源服务。如果空调为 `off`、`unavailable`、`unknown` 或实体不存在，当前节点会被跳过，集成不会尝试启动设备。
+> 本集成只在空调已经运行时调用 `climate.set_temperature`，并在曲线启用风速控制时调用 `climate.set_fan_mode`。只有控制器明确启用开关且会话自然运行到末尾时，才会调用 `climate.turn_off`。请求中不会包含 `hvac_mode`，集成永远不会尝试启动设备；空调为 `off`、`unavailable`、`unknown` 或实体不存在时会安全跳过。
 
 ## 主要功能
 
@@ -100,10 +100,12 @@ custom_components/climate_sleep_curve
 - 控制器名称、启用状态和目标空调列表。
 - 下一次会话默认使用的曲线。
 - 自动启动时间与星期。
+- 曲线自然结束后是否关闭所选空调，默认关闭此选项。
 - 失败重试次数和重试间隔。
 - `catch_up_window_minutes` 配置字段（当前重启恢复策略仍默认不补发错过节点）。
 
 星期编号遵循 Python/Home Assistant 约定：`0` 为周一，`6` 为周日。自动启动使用 Home Assistant 配置的本地时区。
+启用自然结束关机时，每台所选空调都必须在 Home Assistant 中声明支持 `TURN_OFF`；否则控制器保存会返回 `unsupported_turn_off`。
 
 ### 会话 Session
 
@@ -111,7 +113,8 @@ custom_components/climate_sleep_curve
 
 - 修改曲线只影响之后启动的会话。
 - 切换控制器默认曲线不会改变当前会话。
-- 删除控制器会停止其活动会话，但不会关闭空调。
+- 控制器可选择在曲线自然结束后关闭空调；该选择会在会话启动时形成快照。
+- 手动停止、替换、重新开始或删除控制器不会关闭空调。
 - 停止会话只取消后续调温任务，不会恢复启动前温度。
 
 ## 推荐使用流程
@@ -121,7 +124,7 @@ custom_components/climate_sleep_curve
 3. 在卡片中点击“开始设置”。
 4. 创建默认 8 小时曲线，并多选要绑定的空调。
 5. 拖动曲线节点，保存所需温度，并按需选择全程自动风或风量曲线。
-6. 在控制器设置中按需启用每日自动启动。
+6. 在控制器设置中按需启用每日自动启动，以及“曲线自然结束后关闭空调”。
 7. 睡前先用原空调控制方式打开空调，再点击“启动曲线”。
 
 如果启动时空调处于关闭状态，会话仍会正常记录进度，但对应温度节点会得到 `skipped_off`，不会自动打开空调。
@@ -162,7 +165,7 @@ data:
   controller_id: "控制器 ID"
 ```
 
-停止不会关闭空调，也不会改变其当前目标温度。
+停止不会关闭空调，也不会改变其当前目标温度，即使当前会话启用了自然结束关机。
 
 ### 重新应用当前节点
 
@@ -208,7 +211,7 @@ actions:
 mode: single
 ```
 
-是否自动打开空调应由你单独、明确地设计自动化；本集成本身不会这样做。
+是否自动打开空调应由你单独、明确地设计自动化；本集成本身不会打开空调。可选的关机功能只在会话本次正常运行到曲线末尾时执行。
 
 ## 节点执行结果
 
@@ -235,6 +238,7 @@ mode: single
 - 活动会话会持久化，Home Assistant 重启后继续安排未来节点。
 - 重启期间错过的节点记录为 `missed_during_restart`。
 - 如果重启时会话已经超过结束时间，则状态变为 `completed_after_restart`。
+- 重启恢复不会补执行关机；只有 Home Assistant 持续运行并实际触发本次自然结束时才会关机。
 - 非活动历史默认保留 30 天。
 
 在“设置 → 设备与服务 → Climate Sleep Curve → 配置”中可调整：
@@ -254,7 +258,7 @@ mode: single
 - `climate_sleep_curve_session_stopped`
 - `climate_sleep_curve_session_completed`
 
-事件数据包含控制器 ID、会话 ID、`climate_entity_ids` 目标空调列表，以及用于旧客户端兼容的首个 `climate_entity_id`；节点事件还包含计划时间、处理时间、目标温度、目标风速、聚合结果、逐设备 `entity_results` 和尝试次数。可以在“开发者工具 → 事件”中监听，用于通知或调试。
+事件数据包含控制器 ID、会话 ID、`climate_entity_ids` 目标空调列表、自然结束关机快照及关机结果，以及用于旧客户端兼容的首个 `climate_entity_id`；节点事件还包含计划时间、处理时间、目标温度、目标风速、聚合结果、逐设备 `entity_results` 和尝试次数。可以在“开发者工具 → 事件”中监听，用于通知或调试。
 
 ## 故障排查
 
@@ -288,7 +292,7 @@ mode: single
 3. 删除 `/config/custom_components/climate_sleep_curve`。
 4. 重启 Home Assistant。
 
-删除集成不会关闭空调。卸载前建议备份 Home Assistant，以便保留 `.storage` 中的曲线和历史。
+删除或卸载集成不会关闭空调。卸载前建议备份 Home Assistant，以便保留 `.storage` 中的曲线和历史。
 
 ## 开发
 
@@ -323,7 +327,7 @@ pytest
 
 ## 版本边界
 
-当前版本为 `0.4.1`。这一版本支持温度曲线、全程自动风和逐节点风量曲线；单个节点最多同时处理 4 台设备，更多目标会排队执行，避免瞬间产生过多服务调用。集成不做连续插值，不创建虚拟 `climate` 实体，也不控制电源、HVAC 模式、摆风或湿度。
+当前版本为 `0.5.0`。这一版本新增默认关闭、仅在曲线自然结束时生效的可选关机功能，并继续支持温度曲线、全程自动风和逐节点风量曲线。单个动作最多同时处理 4 台设备，更多目标会排队执行。集成不做连续插值，不创建虚拟 `climate` 实体，不会打开空调，也不会改变 HVAC 模式、摆风或湿度。
 
 ## 许可证
 

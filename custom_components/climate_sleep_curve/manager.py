@@ -29,7 +29,7 @@ from .const import (
     SIGNAL_UPDATED,
     STORE_VERSION,
 )
-from .executor import async_execute_climate_targets
+from .executor import async_execute_climate_targets, async_turn_off_climates
 from .models import RevisionConflict, ValidationError, make_session, new_id, parse_utc, utcnow_iso, validate_controller, validate_profile
 from .storage import CurveStorage
 
@@ -151,6 +151,7 @@ class ClimateSleepCurveManager:
                 "max_duration_minutes": MAX_DURATION_MINUTES,
                 "max_points": MAX_POINTS,
                 "fan_mode_controls": sorted(FAN_MODE_CONTROLS),
+                "turn_off_after_completion": True,
             },
         }
 
@@ -226,6 +227,14 @@ class ClimateSleepCurveManager:
                 supported = 0
             if not (supported & ClimateEntityFeature.TARGET_TEMPERATURE) and "temperature" not in state.attributes:
                 raise ValidationError("unsupported_entity", f"The climate entity does not support a target temperature: {entity_id}")
+            if (
+                normalized["turn_off_after_completion"]
+                and not supported & ClimateEntityFeature.TURN_OFF
+            ):
+                raise ValidationError(
+                    "unsupported_turn_off",
+                    f"The climate entity does not support turn off: {entity_id}",
+                )
         now = utcnow_iso()
         created = not controller_id
         config_lock = self._locks.setdefault(controller_id or "__new_controller__", asyncio.Lock())
@@ -425,10 +434,26 @@ class ClimateSleepCurveManager:
         """Finish a session while its controller lock is held."""
         if session["status"] != "running":
             return
+        turn_off_result = None
+        if status == "completed" and session.get("turn_off_after_completion", False):
+            entity_ids = list(session.get("climate_entity_ids") or [session["climate_entity_id"]])
+            turn_off_result = await async_turn_off_climates(
+                self.hass,
+                entity_ids,
+                lambda: (
+                    not self._unloading
+                    and session["status"] == "running"
+                    and session["id"] not in self._cancel_requests
+                ),
+            )
         async with self._transaction():
             session["status"] = status
             session["next_offset_minutes"] = None
             session["updated_at"] = utcnow_iso()
+            if turn_off_result is not None:
+                session["turn_off_result"] = turn_off_result["result"]
+                session["turn_off_error"] = turn_off_result.get("error")
+                session["turn_off_entity_results"] = turn_off_result["entity_results"]
         self._after_session_finished(session, event_name)
 
     def _after_session_finished(self, session: dict[str, Any], event_name: str) -> None:
@@ -537,6 +562,8 @@ class ClimateSleepCurveManager:
             "session_id": session["id"],
             "climate_entity_ids": entity_ids,
             "climate_entity_id": entity_ids[0],
+            "turn_off_after_completion": session.get("turn_off_after_completion", False),
+            "turn_off_result": session.get("turn_off_result"),
         }
 
     def _broadcast(self, event_type: str, data: dict[str, Any]) -> None:

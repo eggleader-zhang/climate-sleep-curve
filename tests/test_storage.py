@@ -28,4 +28,8 @@ async def test_load_migrates_legacy_entity_fields():
     assert result["sessions"]["s"]["climate_entity_ids"] == ["climate.bedroom"]
     assert result["profiles"]["p"]["fan_mode_control"] == "none"
     assert result["sessions"]["s"]["profile_snapshot"]["fan_mode_control"] == "none"
+    assert result["controllers"]["c"]["turn_off_after_completion"] is False
+    assert result["sessions"]["s"]["turn_off_after_completion"] is False
+    assert result["sessions"]["s"]["turn_off_result"] is None
+    assert result["sessions"]["s"]["turn_off_entity_results"] == []
     storage._store.async_save.assert_awaited_once()

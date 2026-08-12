@@ -12,14 +12,15 @@
 
 以下规则高于普通功能需求，除非维护者明确批准改变产品安全模型：
 
-1. 唯一允许调用的设备控制服务是 `climate.set_temperature` 和 `climate.set_fan_mode`。
-2. 禁止调用 `climate.turn_on`、`climate.turn_off`、`homeassistant.turn_on`、`toggle` 或任何等效电源服务。
-3. 调用 `climate.set_temperature` 时只能传递 `entity_id` 和 `temperature`；调用 `climate.set_fan_mode` 时只能传递 `entity_id` 和 `fan_mode`。两者均不得包含 `hvac_mode`。
-4. 目标实体不存在或状态为 `off`、`unknown`、`unavailable` 时必须直接跳过，不得尝试唤醒设备。
-5. 服务调用失败后的重试必须重新读取实体状态；如果设备已经关闭，应停止重试。
-6. 停止、替换、删除控制器或卸载集成只取消调度，不得关闭设备或恢复先前温度。
-7. Home Assistant 重启后默认不得补发已经错过的节点。
-8. 活动会话必须使用启动时的曲线快照，曲线后续修改不得改变该会话。
+1. 允许调用的设备控制服务只有 `climate.set_temperature`、`climate.set_fan_mode`，以及下述严格受限的 `climate.turn_off`；禁止调用 `climate.turn_on`、`homeassistant.turn_on`、`toggle` 或任何等效开机服务。
+2. `climate.turn_off` 只能在控制器明确启用 `turn_off_after_completion` 且会话于本次正常调度中自然结束时调用；该设置必须在会话启动时形成快照，旧配置默认关闭。
+3. 手动停止、替换、重新开始、删除控制器、卸载或重新加载集成，以及重启后发现会话已过期时，均不得调用任何关机服务。
+4. 调用 `climate.set_temperature` 时只能传递 `entity_id` 和 `temperature`；调用 `climate.set_fan_mode` 时只能传递 `entity_id` 和 `fan_mode`；调用 `climate.turn_off` 时只能传递 `entity_id`。所有调用均不得包含 `hvac_mode`。
+5. 目标实体不存在或状态为 `off`、`unknown`、`unavailable` 时必须直接跳过，不得尝试唤醒设备；已经关闭的设备不得重复调用关机。
+6. 温度或风速服务调用失败后的重试必须重新读取实体状态；如果设备已经关闭，应停止重试。自然结束关机不重试，一台设备失败不得阻止其他目标独立处理。
+7. 除第 2 条明确允许的自然结束关机外，结束会话只取消调度，不得关闭设备或恢复先前温度。
+8. Home Assistant 重启后默认不得补发已经错过的节点，也不得补执行自然结束关机。
+9. 活动会话必须使用启动时的曲线和结束关机设置快照，后续修改不得改变该会话。
 
 涉及 `executor.py`、会话生命周期或服务注册的修改必须包含针对这些规则的测试。
 
@@ -59,6 +60,7 @@
 - 自动启动时间使用 `HH:MM:SS`。
 - 星期为 0～6，其中 0 是周一。
 - `catch_up_window_minutes` 为 0～15；`retry_count` 为 0～1；`retry_delay_seconds` 为 1～300。
+- `turn_off_after_completion` 必须为布尔值，默认 `false`；仅控制自然结束动作。
 
 ### 修订号
 
@@ -76,6 +78,7 @@
 - 节点处理必须幂等，同一会话的同一偏移不得重复记录。
 - 所有调度回调在会话结束、配置条目卸载或控制器删除时都应取消。
 - 自动启动使用 Home Assistant 本地时区，并避免同一控制器同一天重复触发。
+- 自然结束关机必须使用会话快照中的目标实体和开关；不得回读控制器当前值改变活动会话。
 
 不要使用裸 `asyncio.create_task` 绕过 Home Assistant 生命周期；使用现有任务跟踪方式。
 
@@ -106,6 +109,7 @@
 - 日志只记录排错所需信息，不记录完整家庭配置、访问令牌或用户输入的大块数据。
 - 错误字符串持久化或向前端返回前应限制长度。
 - 新增任何可识别家庭环境的字段时，应同步更新 `diagnostics.py` 的脱敏逻辑。
+- `turn_off_entity_results` 中的实体 ID 必须和节点逐设备结果一样脱敏。
 
 ## 测试要求
 
@@ -124,7 +128,7 @@ pytest
 改动应按风险增加测试，重点包括：
 
 - `off`、`unknown`、`unavailable` 和实体缺失时无服务调用。
-- 温度和风速服务数据不含 `hvac_mode`，且没有任何电源服务调用。
+- 温度和风速服务数据不含 `hvac_mode`；只有启用快照的自然结束允许 `climate.turn_off`，数据只能包含 `entity_id`，其他生命周期路径均不得调用电源服务。
 - 不支持的风速、相同风速、风速调用失败重试，以及重试期间关闭设备。
 - 摄氏/华氏转换、最小/最大范围、步进和无效设备属性。
 - 相同目标的 `no_change` 行为。

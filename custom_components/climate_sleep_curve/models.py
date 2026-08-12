@@ -182,7 +182,12 @@ def validate_controller(data: dict[str, Any], profile_ids: set[str]) -> dict[str
         raise ValidationError("invalid_controller", "Retry or catch-up option is outside its allowed range")
     enabled = data.get("enabled", True)
     automatic_enabled = auto.get("enabled", False)
-    if not isinstance(enabled, bool) or not isinstance(automatic_enabled, bool):
+    turn_off_after_completion = data.get("turn_off_after_completion", False)
+    if (
+        not isinstance(enabled, bool)
+        or not isinstance(automatic_enabled, bool)
+        or not isinstance(turn_off_after_completion, bool)
+    ):
         raise ValidationError("invalid_controller", "Enabled options must be boolean values")
     return {
         "name": name,
@@ -191,6 +196,7 @@ def validate_controller(data: dict[str, Any], profile_ids: set[str]) -> dict[str
         "climate_entity_id": entity_ids[0],
         "profile_id": profile_id,
         "enabled": enabled,
+        "turn_off_after_completion": turn_off_after_completion,
         "automatic_start": {
             "enabled": automatic_enabled,
             "time": raw_time,
@@ -212,6 +218,10 @@ def make_session(controller: dict[str, Any], profile: dict[str, Any], source: st
         "controller_id": controller["id"],
         "climate_entity_ids": entity_ids,
         "climate_entity_id": entity_ids[0],
+        "turn_off_after_completion": bool(controller.get("turn_off_after_completion", False)),
+        "turn_off_result": None,
+        "turn_off_error": None,
+        "turn_off_entity_results": [],
         "profile_snapshot": deepcopy(profile),
         "source": source,
         "status": "running",

@@ -14,6 +14,8 @@ from custom_components.climate_sleep_curve.executor import (
     async_execute_fan_mode,
     async_execute_temperature,
     async_execute_temperatures,
+    async_turn_off_climate,
+    async_turn_off_climates,
 )
 
 
@@ -90,6 +92,67 @@ async def test_only_safe_set_fan_mode_payload_is_sent():
         "climate", "set_fan_mode", {"entity_id": "climate.bedroom", "fan_mode": "auto"}, blocking=True
     )
     assert "hvac_mode" not in hass.services.async_call.await_args.args[2]
+
+
+@pytest.mark.asyncio
+async def test_only_safe_turn_off_payload_is_sent():
+    hass = hass_with_state(State("climate.bedroom", "cool", {"temperature": 27}))
+
+    result = await async_turn_off_climate(hass, "climate.bedroom", lambda: True)
+
+    assert result["result"] == "applied"
+    hass.services.async_call.assert_awaited_once_with(
+        "climate", "turn_off", {"entity_id": "climate.bedroom"}, blocking=True
+    )
+    assert set(hass.services.async_call.await_args.args[2]) == {"entity_id"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state_value,expected", [
+    ("off", "no_change"),
+    ("unavailable", "skipped_unavailable"),
+    ("unknown", "skipped_unknown"),
+])
+async def test_turn_off_skips_non_running_entity(state_value, expected):
+    hass = hass_with_state(State("climate.bedroom", state_value, {}))
+
+    result = await async_turn_off_climate(hass, "climate.bedroom", lambda: True)
+
+    assert result["result"] == expected
+    hass.services.async_call.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_turn_off_skips_missing_entity_and_cancelled_completion():
+    missing_hass = hass_with_state(None)
+    cancelled_hass = hass_with_state(State("climate.bedroom", "cool", {}))
+
+    missing = await async_turn_off_climate(missing_hass, "climate.bedroom", lambda: True)
+    cancelled = await async_turn_off_climate(cancelled_hass, "climate.bedroom", lambda: False)
+
+    assert missing["result"] == "skipped_unknown"
+    assert cancelled["result"] == "skipped_cancelled"
+    missing_hass.services.async_call.assert_not_called()
+    cancelled_hass.services.async_call.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_turn_off_targets_are_independent_and_not_retried():
+    hass = Mock()
+    hass.states.get.side_effect = lambda entity_id: State(entity_id, "cool", {})
+
+    async def turn_off(_domain, _service, data, **_kwargs):
+        if data["entity_id"] == "climate.bedroom":
+            raise RuntimeError("device failure")
+
+    hass.services.async_call = AsyncMock(side_effect=turn_off)
+    result = await async_turn_off_climates(
+        hass, ["climate.bedroom", "climate.study"], lambda: True
+    )
+
+    assert result["result"] == "partial_failure"
+    assert hass.services.async_call.await_count == 2
+    assert [item["result"] for item in result["entity_results"]] == ["failed", "applied"]
 
 
 @pytest.mark.asyncio

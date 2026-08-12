@@ -4,7 +4,7 @@ from __future__ import annotations
 
 DOMAIN = "climate_sleep_curve"
 NAME = "Climate Sleep Curve"
-VERSION = "0.4.1"
+VERSION = "0.5.0"
 STORE_KEY = DOMAIN
 STORE_VERSION = 1
 PLATFORMS = ["sensor", "switch", "select", "button"]

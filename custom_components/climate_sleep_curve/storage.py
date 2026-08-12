@@ -39,6 +39,18 @@ class CurveStorage:
                 elif item.get("climate_entity_ids") and "climate_entity_id" not in item:
                     item["climate_entity_id"] = item["climate_entity_ids"][0]
                     changed = True
+                if "turn_off_after_completion" not in item:
+                    item["turn_off_after_completion"] = False
+                    changed = True
+        for session in base.get("sessions", {}).values():
+            for field, default in (
+                ("turn_off_result", None),
+                ("turn_off_error", None),
+                ("turn_off_entity_results", []),
+            ):
+                if field not in session:
+                    session[field] = deepcopy(default)
+                    changed = True
         for session in base.get("sessions", {}).values():
             snapshot = session.get("profile_snapshot")
             if isinstance(snapshot, dict) and "fan_mode_control" not in snapshot:
