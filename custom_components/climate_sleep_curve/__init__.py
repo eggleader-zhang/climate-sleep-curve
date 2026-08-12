@@ -15,6 +15,7 @@ from .manager import ClimateSleepCurveManager
 from .models import ValidationError
 
 ClimateSleepCurveConfigEntry: TypeAlias = ConfigEntry[ClimateSleepCurveManager]
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
 def get_manager(hass: HomeAssistant) -> ClimateSleepCurveManager:

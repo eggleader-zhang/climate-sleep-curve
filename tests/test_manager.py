@@ -13,6 +13,7 @@ from custom_components.climate_sleep_curve.storage import CurveStorage
 
 def build_manager():
     hass = Mock()
+    hass.data = {}
     hass.states.get.return_value = Mock(state="cool", attributes={"supported_features": 1, "temperature": 25})
     hass.bus.async_fire = Mock()
     manager = ClimateSleepCurveManager(hass)

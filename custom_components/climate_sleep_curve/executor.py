@@ -35,16 +35,20 @@ def normalize_temperature(state: State, temperature_c: float) -> tuple[float, fl
     target = temperature_c
     if unit == UnitOfTemperature.FAHRENHEIT:
         target = TemperatureConverter.convert(temperature_c, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT)
+    default_step = 0.5 if unit == UnitOfTemperature.CELSIUS else 1.0
     try:
         minimum = float(state.attributes.get(ATTR_MIN_TEMP, target))
         maximum = float(state.attributes.get(ATTR_MAX_TEMP, target))
-        step = float(state.attributes.get(ATTR_TEMPERATURE_STEP, 0.5 if unit == UnitOfTemperature.CELSIUS else 1.0))
     except (TypeError, ValueError):
         minimum = maximum = target
-        step = 0.5 if unit == UnitOfTemperature.CELSIUS else 1.0
-    if not all(map(math.isfinite, (minimum, maximum, step))) or step <= 0 or minimum > maximum:
+    if not all(map(math.isfinite, (minimum, maximum))) or minimum > maximum:
         minimum = maximum = target
-        step = 0.5 if unit == UnitOfTemperature.CELSIUS else 1.0
+    try:
+        step = float(state.attributes.get(ATTR_TEMPERATURE_STEP, default_step))
+    except (TypeError, ValueError):
+        step = default_step
+    if not math.isfinite(step) or step <= 0:
+        step = default_step
     clamped = min(maximum, max(minimum, target))
     snapped = minimum + round((clamped - minimum) / step) * step
     return round(min(maximum, max(minimum, snapped)), 3), step
