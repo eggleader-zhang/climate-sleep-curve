@@ -16,6 +16,7 @@ ATTR_TEMPERATURE = "temperature"
 ATTR_MIN_TEMP = "min_temp"
 ATTR_MAX_TEMP = "max_temp"
 ATTR_TEMPERATURE_STEP = "target_temp_step"
+MAX_PARALLEL_TARGETS = 4
 
 
 def _state_result(state: State | None) -> str | None:
@@ -56,42 +57,55 @@ async def async_execute_temperature(
     retry_count: int,
     retry_delay: int,
     is_active: Callable[[], bool],
+    *,
+    service_limiter: asyncio.Semaphore | None = None,
 ) -> dict[str, Any]:
     """Set temperature only while an existing climate entity is running."""
     attempts = 0
     first_failure = False
     while attempts <= retry_count:
-        if not is_active():
-            return {"result": "failed", "attempts": attempts, "error": "Session is no longer active"}
-        state = hass.states.get(entity_id)
-        skipped = _state_result(state)
-        if skipped:
-            if first_failure and skipped == "skipped_off":
-                skipped = "skipped_off_after_failure"
-            return {"result": skipped, "attempts": attempts, "error": None}
-        assert state is not None
-        target, step = normalize_temperature(state, temperature_c)
-        current = state.attributes.get(ATTR_TEMPERATURE)
+        acquired = False
+        failure: Exception | None = None
+        if service_limiter is not None:
+            await service_limiter.acquire()
+            acquired = True
         try:
-            unchanged = current is not None and abs(float(current) - target) <= max(0.01, step / 2)
-        except (TypeError, ValueError):
-            unchanged = False
-        if unchanged:
-            return {"result": "no_change", "attempts": attempts, "error": None, "applied_temperature": target}
-        attempts += 1
-        try:
-            # Safety invariant: never include hvac_mode and never call a power service.
-            await hass.services.async_call(
-                CLIMATE_DOMAIN,
-                SERVICE_SET_TEMPERATURE,
-                {ATTR_ENTITY_ID: entity_id, ATTR_TEMPERATURE: target},
-                blocking=True,
-            )
-            return {"result": "applied", "attempts": attempts, "error": None, "applied_temperature": target}
-        except Exception as err:  # Home Assistant service integrations may raise arbitrary errors.
+            if not is_active():
+                return {"result": "failed", "attempts": attempts, "error": "Session is no longer active"}
+            state = hass.states.get(entity_id)
+            skipped = _state_result(state)
+            if skipped:
+                if first_failure and skipped == "skipped_off":
+                    skipped = "skipped_off_after_failure"
+                return {"result": skipped, "attempts": attempts, "error": None}
+            assert state is not None
+            target, step = normalize_temperature(state, temperature_c)
+            current = state.attributes.get(ATTR_TEMPERATURE)
+            try:
+                unchanged = current is not None and abs(float(current) - target) <= max(0.01, step / 2)
+            except (TypeError, ValueError):
+                unchanged = False
+            if unchanged:
+                return {"result": "no_change", "attempts": attempts, "error": None, "applied_temperature": target}
+            attempts += 1
+            try:
+                # Safety invariant: never include hvac_mode and never call a power service.
+                await hass.services.async_call(
+                    CLIMATE_DOMAIN,
+                    SERVICE_SET_TEMPERATURE,
+                    {ATTR_ENTITY_ID: entity_id, ATTR_TEMPERATURE: target},
+                    blocking=True,
+                )
+                return {"result": "applied", "attempts": attempts, "error": None, "applied_temperature": target}
+            except Exception as err:  # Home Assistant service integrations may raise arbitrary errors.
+                failure = err
+        finally:
+            if acquired:
+                service_limiter.release()
+        if failure is not None:
             first_failure = True
             if attempts > retry_count:
-                return {"result": "failed", "attempts": attempts, "error": str(err)[:256]}
+                return {"result": "failed", "attempts": attempts, "error": str(failure)[:256]}
             await asyncio.sleep(retry_delay)
     raise AssertionError("unreachable")
 
@@ -105,9 +119,17 @@ async def async_execute_temperatures(
     is_active: Callable[[], bool],
 ) -> dict[str, Any]:
     """Safely apply one point to several independent climate entities."""
+    semaphore = asyncio.Semaphore(MAX_PARALLEL_TARGETS)
+
     raw_results = await asyncio.gather(*(
         async_execute_temperature(
-            hass, entity_id, temperature_c, retry_count, retry_delay, is_active
+            hass,
+            entity_id,
+            temperature_c,
+            retry_count,
+            retry_delay,
+            is_active,
+            service_limiter=semaphore,
         )
         for entity_id in entity_ids
     ))

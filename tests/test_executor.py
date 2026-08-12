@@ -1,5 +1,6 @@
 """Hard safety regression tests for device service calls."""
 
+import asyncio
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -7,7 +8,11 @@ import pytest
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import State
 
-from custom_components.climate_sleep_curve.executor import async_execute_temperature, async_execute_temperatures
+from custom_components.climate_sleep_curve.executor import (
+    MAX_PARALLEL_TARGETS,
+    async_execute_temperature,
+    async_execute_temperatures,
+)
 
 
 def hass_with_state(state):
@@ -111,3 +116,70 @@ async def test_multiple_entities_are_checked_and_executed_independently():
     assert result["attempts"] == 1
     assert [item["result"] for item in result["entity_results"]] == ["skipped_off", "applied"]
     assert all("hvac_mode" not in call.args[2] for call in hass.services.async_call.await_args_list)
+
+
+@pytest.mark.asyncio
+async def test_multiple_entity_service_calls_have_a_concurrency_limit():
+    hass = Mock()
+    hass.states.get.return_value = Mock(
+        state="cool",
+        attributes={"temperature": 25, "min_temp": 16, "max_temp": 30, "target_temp_step": 0.5},
+    )
+    active_calls = 0
+    peak_calls = 0
+    release = asyncio.Event()
+
+    async def block_call(*_args, **_kwargs):
+        nonlocal active_calls, peak_calls
+        active_calls += 1
+        peak_calls = max(peak_calls, active_calls)
+        if peak_calls == MAX_PARALLEL_TARGETS:
+            release.set()
+        await release.wait()
+        await asyncio.sleep(0)
+        active_calls -= 1
+
+    hass.services.async_call = AsyncMock(side_effect=block_call)
+    entity_ids = [f"climate.room_{index}" for index in range(MAX_PARALLEL_TARGETS + 3)]
+
+    result = await async_execute_temperatures(hass, entity_ids, 27, 0, 10, lambda: True)
+
+    assert peak_calls == MAX_PARALLEL_TARGETS
+    assert hass.services.async_call.await_count == len(entity_ids)
+    assert all(item["result"] == "applied" for item in result["entity_results"])
+
+
+@pytest.mark.asyncio
+async def test_entity_waiting_for_service_slot_rechecks_session_before_calling():
+    hass = Mock()
+    hass.states.get.return_value = Mock(
+        state="cool",
+        attributes={"temperature": 25, "min_temp": 16, "max_temp": 30, "target_temp_step": 0.5},
+    )
+    saturated = asyncio.Event()
+    release = asyncio.Event()
+    active_calls = 0
+
+    async def block_call(*_args, **_kwargs):
+        nonlocal active_calls
+        active_calls += 1
+        if active_calls == MAX_PARALLEL_TARGETS:
+            saturated.set()
+        await release.wait()
+        active_calls -= 1
+
+    hass.services.async_call = AsyncMock(side_effect=block_call)
+    session_active = True
+    entity_ids = [f"climate.room_{index}" for index in range(MAX_PARALLEL_TARGETS + 1)]
+    task = asyncio.create_task(
+        async_execute_temperatures(hass, entity_ids, 27, 0, 10, lambda: session_active)
+    )
+
+    await saturated.wait()
+    session_active = False
+    release.set()
+    result = await task
+
+    assert hass.services.async_call.await_count == MAX_PARALLEL_TARGETS
+    assert result["entity_results"][-1]["result"] == "failed"
+    assert result["entity_results"][-1]["error"] == "Session is no longer active"
