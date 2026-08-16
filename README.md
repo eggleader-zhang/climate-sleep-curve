@@ -1,6 +1,7 @@
 # Climate Sleep Curve / 空调睡眠曲线
 
 [![GitHub release](https://img.shields.io/github/v/release/eggleader-zhang/climate-sleep-curve)](https://github.com/eggleader-zhang/climate-sleep-curve/releases)
+[![CI](https://github.com/eggleader-zhang/climate-sleep-curve/actions/workflows/ci.yml/badge.svg)](https://github.com/eggleader-zhang/climate-sleep-curve/actions/workflows/ci.yml)
 [![HACS validation](https://github.com/eggleader-zhang/climate-sleep-curve/actions/workflows/validate.yml/badge.svg)](https://github.com/eggleader-zhang/climate-sleep-curve/actions/workflows/validate.yml)
 [![Hassfest validation](https://github.com/eggleader-zhang/climate-sleep-curve/actions/workflows/hassfest.yml/badge.svg)](https://github.com/eggleader-zhang/climate-sleep-curve/actions/workflows/hassfest.yml)
 
@@ -44,7 +45,7 @@ Climate Sleep Curve 是一个 Home Assistant 自定义集成，用于让已有�
 4. 搜索并下载 **Climate Sleep Curve**。
 5. 重启 Home Assistant。
 
-HACS 使用公开 GitHub 仓库作为下载源。Gitea 仅作为项目镜像，不应填写到 HACS 自定义仓库中。
+本项目仅在 GitHub 维护和发布，HACS 自定义仓库必须使用上面的 GitHub 地址。
 
 ### 手动安装
 
@@ -285,6 +286,21 @@ mode: single
 ### 多个页面同时编辑后保存失败
 
 曲线和控制器使用修订号进行乐观并发控制。出现 `revision_conflict` 表示另一个页面已经保存了更新，请关闭编辑框、刷新状态后重新修改。
+
+## 更新
+
+### 通过 HACS 更新
+
+1. 更新前先创建并下载 Home Assistant 备份。
+2. 在“设置 → 更新”中安装更新；也可以在 HACS 中找到 **Climate Sleep Curve**，通过三点菜单选择“重新下载（Redownload）”。
+3. 重启 Home Assistant；仅重新加载 YAML 或刷新浏览器不会重新载入 Python 集成。
+4. 同时更新 [Climate Sleep Curve Card](https://github.com/eggleader-zhang/climate-sleep-curve-card)，确保前后端版本兼容。
+
+如果 HACS 暂时没有显示新版本，可在仓库菜单中选择“重新下载”或刷新 HACS 数据后再检查。更新不会删除 `.storage` 中已有的曲线、控制器和历史。
+
+### 手动更新
+
+从 [GitHub Releases](https://github.com/eggleader-zhang/climate-sleep-curve/releases) 下载最新版本，用新的 `custom_components/climate_sleep_curve` 完整替换旧目录，然后重启 Home Assistant。不要手工修改或覆盖 Home Assistant 的 `.storage` 文件。
 
 ## 卸载
 
